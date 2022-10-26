@@ -1,0 +1,6 @@
+sh.addShard("shard-01-db-buchungsverwaltung/shard01buchungsverwaltung1:27017")
+sh.addShard("shard-01-db-buchungsverwaltung/shard01buchungsverwaltung2:27017")
+sh.addShard("shard-01-db-buchungsverwaltung/shard01buchungsverwaltung3:27017")
+sh.addShard("shard-02-db-buchungsverwaltung/shard02buchungsverwaltung1:27017")
+sh.addShard("shard-02-db-buchungsverwaltung/shard02buchungsverwaltung2:27017")
+sh.addShard("shard-02-db-buchungsverwaltung/shard02buchungsverwaltung3:27017")
