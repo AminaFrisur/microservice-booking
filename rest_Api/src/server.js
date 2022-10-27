@@ -30,7 +30,7 @@ const buchung = new Schema({
     id: ObjectId,
     buchungsNummer: Number,
     buchungsDatum: String,
-    // Ebenfalls auch hier Vorsicht wegen verteilten Transaktionenen !
+    // Ebenfalls auch hier vorsicht wegen verteilten Transaktionenen !
     loginName: String,
     // Hier vorsicht: theoretisch eine verteile DB Transaktion
     // Da aber keine Fahrzeuge gelöscht werden, kann hier nichts passieren deshalb OK !
@@ -74,13 +74,23 @@ function checkParams(req, res, requiredParams) {
 // App
 const app = express();
 
-// TODO: erstelle einen API Call der verfügbare Buchungszeiten und Fahrzeuge fuer einen Standort zurückgibt
+// TODO: Hole dir Buchungen von Datum bis Datum
+app.post('/getCurrentBookings', [jsonBodyParser], async function (req, res) {
+    try {
+        let params = checkParams(req, res,["von", "bis"]);
+        await mongoose.connect(dbconfig.url);
+        const buchungen = await buchungenDB.find({"buchungsDatum": {$gte:params.von,$lt:params.bis}});
+        res.status(200).send(buchungen);
+    } catch(err){
+        console.log(err);
+        res.status(401).send(err);
+    }
+});
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getBookings', async function (req, res) {
+app.get('/getAllBookings', async function (req, res) {
     try {
-        // await mongoose.connect(dbconfig.url, {useNewUrlParser: true, user: dbconfig.user, pass: dbconfig.pwd});
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
         res.status(200).send(buchungen);
@@ -130,6 +140,8 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer + 1;
         }
 
+        // TODO: Payment und Rechnung hier noch einfügen
+
         console.log(aktuelleBuchungsNummer);
 
         // new Date.toISOString()
@@ -138,7 +150,7 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
         // TODO: Prüfe ob Buchungszeitraum verfügbar ist
         let preisNetto = params.dauerDerBuchung * preisTabelle["Kombi"];
         await buchungenDB.create({
-            buchungsDatum: params.buchungsDatum,
+            buchungsDatum: new Date(params.buchungsDatum).toISOString(),
             buchungsNummer: aktuelleBuchungsNummer,
             loginName: params.loginName,
             fahrzeugId: params.fahrzeugId,
@@ -155,10 +167,13 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
     }
 });
 
+
 app.post('/cancelBooking/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
+
+        // TODO: Direkt eine Gutschrift als Rechnung erstellen und PAyment in Auftrag geben
 
         const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
         buchung.storniert = true;
