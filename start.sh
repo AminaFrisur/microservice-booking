@@ -1,10 +1,10 @@
 #!/bin/bash
 # Set up Replications for Config Server, shards and router
-docker compose exec dbRechnungConfig1 sh -c "mongosh < /scripts/init-configserver.js"
-docker compose exec shard01rechnungsverwaltung1 sh -c "mongosh < /scripts/init-shard01-db-rechnungsverwaltung.js"
-docker compose exec shard02rechnungsverwaltung1 sh -c "mongosh < /scripts/init-shard02-db-rechnungsverwaltung.js"
-docker compose exec router01rechnungsverwaltung sh -c "mongosh < /scripts/init-router.js"
-docker compose exec router01rechnungsverwaltung sh -c "mongosh < /scripts/init-database.js"
+docker compose exec dbBuchungConfig1 sh -c "mongosh < /scripts/init-configserver.js"
+docker compose exec shard01buchungsverwaltung1 sh -c "mongosh < /scripts/init-shard01-db-buchungsverwaltung.js"
+docker compose exec shard02buchungsverwaltung1 sh -c "mongosh < /scripts/init-shard02-db-buchungsverwaltung.js"
+docker compose exec router01buchungsverwaltung sh -c "mongosh < /scripts/init-router.js"
+docker compose exec router01buchungsverwaltung sh -c "mongosh < /scripts/init-database.js"
 
 # share Database backend for all shards, set Index and shared key
 # mongosh --eval "sh.enableSharding('backend')"

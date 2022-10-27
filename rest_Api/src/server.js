@@ -13,9 +13,14 @@ mongoose.Promise = global.Promise;
 const dbconfig = {
     url: 'mongodb://router01buchungsverwaltung/backend',
 }
-// TODO: Hier nochmal schauen wenn skaliert wird
-// TODO LÖSUNG: Frage ab welche Buchungsnummer aktuell die höchste ist ODER Trigger erstellen in MongoDB
-let aktuelleBuchungsNummer = 0;
+
+const preisTabelle = {
+  "SUV": 80,
+  "Kleinwagen": 60,
+  "Coupe": 70,
+  "Transporter": 100,
+  "Kombi": 80
+};
 
 // definiere ein Schema
 const Schema = mongoose.Schema;
@@ -24,7 +29,7 @@ const ObjectId = Schema.ObjectId;
 const buchung = new Schema({
     id: ObjectId,
     buchungsNummer: Number,
-    buchungsDatum: Date,
+    buchungsDatum: String,
     // Ebenfalls auch hier Vorsicht wegen verteilten Transaktionenen !
     loginName: String,
     // Hier vorsicht: theoretisch eine verteile DB Transaktion
@@ -32,6 +37,7 @@ const buchung = new Schema({
     fahrzeugId: Number,
     dauerDerBuchung: String,
     preisNetto: Number,
+    preisBrutto: Number,
     storniert: Boolean,
 });
 
@@ -71,7 +77,8 @@ const app = express();
 // TODO: erstelle einen API Call der verfügbare Buchungszeiten und Fahrzeuge fuer einen Standort zurückgibt
 
 // api call für eventuelle Statistiken
-app.get('/getBookings', [jsonBodyParser], async function (req, res) {
+// nur für Admin
+app.get('/getBookings', async function (req, res) {
     try {
         // await mongoose.connect(dbconfig.url, {useNewUrlParser: true, user: dbconfig.user, pass: dbconfig.pwd});
         await mongoose.connect(dbconfig.url);
@@ -83,7 +90,7 @@ app.get('/getBookings', [jsonBodyParser], async function (req, res) {
     }
 });
 
-app.get('/getBooking/:buchungsNummer', [jsonBodyParser], async function (req, res) {
+app.get('/getBooking/:buchungsNummer', async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
@@ -96,14 +103,14 @@ app.get('/getBooking/:buchungsNummer', [jsonBodyParser], async function (req, re
 
 });
 
-app.get('/getBookingByUser/:loginName', [jsonBodyParser], async function (req, res) {
+app.get('/getBookingByUser/:loginName', async function (req, res) {
     try {
         let params = checkParams(req, res,["loginName"]);
         await mongoose.connect(dbconfig.url)
         const buchung = await buchungenDB.find({"loginName": params.loginName});
         res.status(200).send(buchung);
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 
@@ -112,32 +119,47 @@ app.get('/getBookingByUser/:loginName', [jsonBodyParser], async function (req, r
 app.post('/createBooking', [jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
-        let params = checkParams(req, res,["buchungsDatum","loginName", "fahrzeugId", "dauerDerBuchung", "preisNetto"]);
+        let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp", "dauerDerBuchung"]);
+
+        // frage die aktuellste Buchungsnummer ab
+        let aktuelleBuchung = await buchungenDB.findOne({}, null, {sort: {buchungsNummer: 1}});
+        let aktuelleBuchungsNummer = 1;
+
+        // Wenn keine Buchungen vorhanden sind
+        if(aktuelleBuchung) {
+            aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer + 1;
+        }
+
+        console.log(aktuelleBuchungsNummer);
+
+        // new Date.toISOString()
 
         aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
+        // TODO: Prüfe ob Buchungszeitraum verfügbar ist
+        let preisNetto = params.dauerDerBuchung * preisTabelle["Kombi"];
         await buchungenDB.create({
             buchungsDatum: params.buchungsDatum,
             buchungsNummer: aktuelleBuchungsNummer,
             loginName: params.loginName,
             fahrzeugId: params.fahrzeugId,
             dauerDerBuchung: params.dauerDerBuchung,
-            preisNetto: params.preisNetto,
+            preisNetto: preisNetto,
+            preisBrutto: preisNetto * 1.19,
             bezahlt: false,
             storniert: false
         });
-        res.send(200, "Buchung wurde erfolgeich erstellt");
+        res.status(200).send("Buchung wurde erfolgeich erstellt");
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 });
 
-app.post('/cancelBooking', [jsonBodyParser], async function (req, res) {
+app.post('/cancelBooking/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
 
-        aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
         const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
         buchung.storniert = true;
         buchung.save();
