@@ -205,11 +205,11 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
 
         // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden !
         // Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-        await makePostRequest("rest-api-rechnungsverwaltung1", 8001, "/createInvoice", bodyData );
+        await makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
 
         // Schritt 3: Führe Bezahlung durch
         // TODO: Payment noch hier einfügen
-
+	console.log("Buchung wurde erfolgreich erstellt");
         res.status(200).send("Buchung wurde erfolgeich erstellt");
     } catch(err){
         console.log(err);

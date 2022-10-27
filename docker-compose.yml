@@ -1,12 +1,15 @@
 
 networks:
-  main:
+  service:
+    name: buchungsverwaltung-service-main
+  architecture:
+    name: main
 
 services:
   ## Router
   router-01-buchungsverwaltung:
     networks:
-      - main
+      - service
     build: ./db_config_router
     container_name: router-01-buchungsverwaltung
     command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/db-buchung-config1:27017,db-buchung-config2:27017,db-buchung-config3:27017 --bind_ip_all
@@ -15,7 +18,7 @@ services:
 
   router-02-buchungsverwaltung:
     networks:
-      - main
+      - service
     build: ./db_config_router
     container_name: router-02-buchungsverwaltung
     command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/db-buchung-config1:27017,db-buchung-config2:27017,db-buchung-config3:27017 --bind_ip_all
@@ -27,7 +30,7 @@ services:
   ## Config Servers
   db-buchung-config1:
     networks:
-      - main
+      - service  
     build: ./db_config_router
     ports:
       - 27130:27017
@@ -36,7 +39,7 @@ services:
 
   db-buchung-config2:
     networks:
-      - main
+      - service
     build: ./db_config_router
     ports:
       - 27131:27017
@@ -45,7 +48,7 @@ services:
 
   db-buchung-config3:
     networks:
-      - main
+      - service
     build: ./db_config_router
     ports:
       - 27132:27017
@@ -55,7 +58,7 @@ services:
   ## Shards 1
   shard-01-buchungsverwaltung1:
     networks:
-      - main
+      - service
     build: ./db_shard
     container_name: shard-01-buchungsverwaltung1
     command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
@@ -67,7 +70,7 @@ services:
 
   shard-01-buchungsverwaltung2:
     networks:
-      - main
+      - service
     build: ./db_shard
     container_name: shard-01-buchungsverwaltung2
     command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
@@ -76,7 +79,7 @@ services:
 
   shard-01-buchungsverwaltung3:
     networks:
-      - main
+      - service
     build: ./db_shard
     container_name: shard-01-buchungsverwaltung3
     command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
@@ -87,7 +90,7 @@ services:
   ## Shards 2
   shard-02-buchungsverwaltung1:
     networks:
-      - main
+      - service
     build: ./db_shard
     container_name: shard-02-buchungsverwaltung1
     command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
@@ -99,7 +102,7 @@ services:
 
   shard-02-buchungsverwaltung2:
     networks:
-      - main
+      - service
     build: ./db_shard
     container_name: shard-02-buchungsverwaltung2
     command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
@@ -108,7 +111,7 @@ services:
 
   shard-02-buchungsverwaltung3:
     networks:
-      - main
+      - service
     build: ./db_shard
     container_name: shard-02-buchungsverwaltung3
     command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
@@ -118,7 +121,8 @@ services:
   ## Rest API
   rest-api-buchungsverwaltung1:
     networks:
-      - main
+      - service
+      - architecture
     build: ./rest_api
     container_name: rest-api-buchungsverwaltung1
     ports:
