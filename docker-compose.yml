@@ -4,60 +4,60 @@ networks:
 
 services:
   ## Router
-  router01buchungsverwaltung:
+  router-01-buchungsverwaltung:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_config_cluster_ms
-    container_name: router01buchungsverwaltung
-    command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/dbBuchungConfig1:27017,dbBuchungConfig2:27017,dbBuchungConfig3:27017 --bind_ip_all
+    build: ./db_config_router
+    container_name: router-01-buchungsverwaltung
+    command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/db-buchung-config1:27017,db-buchung-config2:27017,db-buchung-config3:27017 --bind_ip_all
     ports:
       - 27128:27017
 
-  router02buchungsverwaltung:
+  router-02-buchungsverwaltung:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_config_cluster_ms
-    container_name: router02buchungsverwaltung
-    command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/dbBuchungConfig1:27017,dbBuchungConfig2:27017,dbBuchungConfig3:27017 --bind_ip_all
+    build: ./db_config_router
+    container_name: router-02-buchungsverwaltung
+    command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/db-buchung-config1:27017,db-buchung-config2:27017,db-buchung-config3:27017 --bind_ip_all
     ports:
       - 27129:27017
     links:
       - router01buchungsverwaltung
 
   ## Config Servers
-  dbBuchungConfig1:
+  db-buchung-config1:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_config_cluster_ms
+    build: ./db_config_router
     ports:
       - 27130:27017
-    container_name: dbBuchungConfig1
+    container_name: db-buchung-config1
     command: mongod --port 27017 --configsvr --replSet buchungsverwaltung-mongodb-config-server
 
-  dbBuchungConfig2:
+  db-buchung-config2:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_config_cluster_ms
+    build: ./db_config_router
     ports:
       - 27131:27017
-    container_name: dbBuchungConfig2
+    container_name: db-buchung-config2
     command: mongod --port 27017 --configsvr --replSet buchungsverwaltung-mongodb-config-server
 
-  dbBuchungConfig3:
+  db-buchung-config3:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_config_cluster_ms
+    build: ./db_config_router
     ports:
       - 27132:27017
-    container_name: dbBuchungConfig3
+    container_name: db-buchung-config3
     command: mongod --port 27017 --configsvr --replSet buchungsverwaltung-mongodb-config-server
 
   ## Shards 1
-  shard01buchungsverwaltung1:
+  shard-01-buchungsverwaltung1:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_ms
-    container_name: shard01buchungsverwaltung1
+    build: ./db_shard
+    container_name: shard-01-buchungsverwaltung1
     command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
     ports:
       - 27133:27017
@@ -65,31 +65,31 @@ services:
       - shard01buchungsverwaltung2
       - shard01buchungsverwaltung3
 
-  shard01buchungsverwaltung2:
+  shard-01-buchungsverwaltung2:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_ms
-    container_name: shard01buchungsverwaltung2
+    build: ./db_shard
+    container_name: shard-01-buchungsverwaltung2
     command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
     ports:
       - 27134:27017
 
-  shard01buchungsverwaltung3:
+  shard-01-buchungsverwaltung3:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_ms
-    container_name: shard01buchungsverwaltung3
+    build: ./db_shard
+    container_name: shard-01-buchungsverwaltung3
     command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
     ports:
       - 27135:27017
 
 
   ## Shards 2
-  shard02buchungsverwaltung1:
+  shard-02-buchungsverwaltung1:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_ms
-    container_name: shard02buchungsverwaltung1
+    build: ./db_shard
+    container_name: shard-02-buchungsverwaltung1
     command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
     ports:
       - 27136:27017
@@ -97,29 +97,29 @@ services:
       - shard02buchungsverwaltung2
       - shard02buchungsverwaltung3
 
-  shard02buchungsverwaltung2:
+  shard-02-buchungsverwaltung2:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_ms
-    container_name: shard02buchungsverwaltung2
+    build: ./db_shard
+    container_name: shard-02-buchungsverwaltung2
     command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
     ports:
       - 27137:27017
 
-  shard02buchungsverwaltung3:
+  shard-02-buchungsverwaltung3:
     networks:
       - main
-    image: datenbank_mongodb_buchungsverwaltung_ms
-    container_name: shard02buchungsverwaltung3
+    build: ./db_shard
+    container_name: shard-02-buchungsverwaltung3
     command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
     ports:
       - 27138:27017
 
   ## Rest API
-  restApiBuchungsverwaltung1:
+  rest-api-buchungsverwaltung1:
     networks:
       - main
-    container_name: rest_api_buchungsverwaltung1
-    image: rest_api_buchungsverwaltung_ms
+    build: ./rest_api
+    container_name: rest-api-buchungsverwaltung1
     ports:
       - 8002:8000

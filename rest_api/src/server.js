@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
 
 mongoose.Promise = global.Promise;
 const dbconfig = {
-    url: 'mongodb://router01buchungsverwaltung/backend',
+    url: 'mongodb://router-01-buchungsverwaltung/backend',
 }
 
 const preisTabelle = {
@@ -69,6 +69,42 @@ function checkParams(req, res, requiredParams) {
         }
     }
     return  paramsToReturn;
+}
+
+// HTTP Requests für Rechnungsverwaltung und Payment
+const https = require('https');
+
+async function makePostRequest(hostname, port, path, bodyData) {
+
+    const options = {
+        hostname: hostname,
+        port: port,
+        path: path,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    };
+
+    const postData = JSON.stringify(bodyData);
+
+    const req = https.request(options, (res) => {
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+            console.log(`BODY: ${chunk}`);
+        });
+        res.on('end', () => {
+            console.log('No more data in response.');
+        });
+    });
+
+    req.on('error', (e) => {
+        console.error(`problem with request: ${e.message}`);
+    });
+
+    // Write data to request body
+    req.write(postData);
+    req.end();
 }
 
 // App
@@ -129,7 +165,8 @@ app.get('/getBookingByUser/:loginName', async function (req, res) {
 app.post('/createBooking', [jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
-        let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp", "dauerDerBuchung"]);
+        let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
+                                                        "name", "vorname", "strasße", "hausnummer", "plz"]);
 
         // frage die aktuellste Buchungsnummer ab
         let aktuelleBuchung = await buchungenDB.findOne({}, null, {sort: {buchungsNummer: 1}});
@@ -139,16 +176,11 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
         if(aktuelleBuchung) {
             aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer + 1;
         }
-
-        // TODO: Payment und Rechnung hier noch einfügen
-
-        console.log(aktuelleBuchungsNummer);
-
-        // new Date.toISOString()
-
         aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
-        // TODO: Prüfe ob Buchungszeitraum verfügbar ist
         let preisNetto = params.dauerDerBuchung * preisTabelle["Kombi"];
+
+
+        // Schritt 1: Erstelle Buchung
         await buchungenDB.create({
             buchungsDatum: new Date(params.buchungsDatum).toISOString(),
             buchungsNummer: aktuelleBuchungsNummer,
@@ -160,13 +192,29 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             bezahlt: false,
             storniert: false
         });
+
+        // Schritt 2: Erstelle Rechnung
+        let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
+                        "nachname": params.nachname, "straße": params.straße,
+                        "hausnummer": params.hausnummer, "plz": params.plz,
+                        "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
+                        "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
+                        "preisNetto": params.preisNetto, "buchungsNummer": aktuelleBuchungsNummer};
+
+        // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden !
+        // Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
+        await makePostRequest("rest-api-rechnungsverwaltung1", 8001, "/createInvoice", bodyData );
+
+        // Schritt 3: Führe Bezahlung durch
+        // TODO: Payment noch hier einfügen
+
         res.status(200).send("Buchung wurde erfolgeich erstellt");
     } catch(err){
         console.log(err);
         res.status(401).send(err);
     }
-});
 
+});
 
 app.post('/cancelBooking/:buchungsNummer',  async function (req, res) {
     try {
