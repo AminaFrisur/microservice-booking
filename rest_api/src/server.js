@@ -41,7 +41,6 @@ const buchung = new Schema({
     fahrzeugId: Number,
     dauerDerBuchung: String,
     preisNetto: Number,
-    preisBrutto: Number,
     // Einfügen von Status für eine Buchung: Created, Open, Paid, Started, Closed, cancelled, error -> Started und Closed ist später sehr wichtig für Trip
     status: String
 });
@@ -181,7 +180,7 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
                                                         "fahrzeugModel", "dauerDerBuchung",
-                                                        "name", "vorname", "strasße", "hausnummer", "plz"]);
+                                                        "name", "vorname", "straße", "hausnummer", "plz"]);
 
         // frage die aktuellste Buchungsnummer ab
         let aktuelleBuchung = await buchungenDB.findOne({}, null, {sort: {buchungsNummer: -1}});
@@ -204,7 +203,6 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             fahrzeugId: params.fahrzeugId,
             dauerDerBuchung: params.dauerDerBuchung,
             preisNetto: preisNetto,
-            preisBrutto: preisNetto * 1.19,
             status: "created"
         });
         console.log("Buchung wurde erfolgreich erstellt");
@@ -220,8 +218,9 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
 app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
-                                                        "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
-                                                        "nachname", "vorname", "strasße", "hausnummer", "plz"]);
+                                           "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
+                                           "nachname", "vorname", "straße", "hausnummer", "plz"]);
+        let preisNetto = preisTabelle[params.fahrzeugTyp];                                  
 
         let buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
 
@@ -233,7 +232,7 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
                 "hausnummer": params.hausnummer, "plz": params.plz,
                 "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
                 "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
-                "preisNetto": params.preisNetto, "buchungsNummer": params.buchungsNummer};
+                "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer};
 
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
             await makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
