@@ -2,6 +2,8 @@
 // TODO: GENERELL -> Authentifizierung zwischen Microservices muss noch umgesetzt werden
 // TODO: Umgebungsvariablen beim Start des Containers mit einfügen -> Umgebungsvariable für Router MongoDB
 // TODO: Prüfen des Auth Tokens ! -> Statt in der DB einfach hier über einen simplen Zwischenspeicher lösen -> bei späteren Lösungen vorsicht ! Mutex einfügen -> bei Javascript nicht nötig
+// TODO: Benutzerverwaltung muss auth Token checken
+// TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -40,7 +42,8 @@ const buchung = new Schema({
     dauerDerBuchung: String,
     preisNetto: Number,
     preisBrutto: Number,
-    storniert: Boolean,
+    // Einfügen von Status für eine Buchung: Created, Open, Paid, Started, Closed, cancelled, error -> Started und Closed ist später sehr wichtig für Trip
+    status: String
 });
 
 const buchungenDB = mongoose.model('Booking', buchung);
@@ -74,45 +77,54 @@ function checkParams(req, res, requiredParams) {
 }
 
 // HTTP Requests für Rechnungsverwaltung und Payment
-const https = require('https');
+const http = require('http');
 
 async function makePostRequest(hostname, port, path, bodyData) {
+    // Hier gibt es übrigens ein Problem
+    // Wie soll der Workflow aussehen wenn dies hier fehlschlägt ?
+    // Stichwort Verteilte Transaktionen !!!
 
-    const options = {
-        hostname: hostname,
-        port: port,
-        path: path,
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
+    return new Promise((resolve,reject) => {
+
+        const options = {
+            hostname: hostname,
+            port: port,
+            path: path,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+
+        const postData = JSON.stringify(bodyData);
+
+        const req = http.request({
+            method: 'POST',
+            ...options,
+        }, res => {
+            const chunks = [];
+            res.on('data', data => chunks.push(data))
+            res.on('end', () => {
+                let resBody = Buffer.concat(chunks);
+                switch(res.headers['content-type']) {
+                    case 'application/json':
+                        resBody = JSON.parse(resBody);
+                        break;
+                }
+                resolve(resBody)
+            })
+        })
+        req.on('error',reject);
+        if(postData) {
+            req.write(postData);
         }
-    };
-
-    const postData = JSON.stringify(bodyData);
-
-    const req = https.request(options, (res) => {
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-            console.log(`BODY: ${chunk}`);
-        });
-        res.on('end', () => {
-            console.log('No more data in response.');
-        });
-    });
-
-    req.on('error', (e) => {
-        console.error(`problem with request: ${e.message}`);
-    });
-
-    // Write data to request body
-    req.write(postData);
-    req.end();
+        req.end();
+    })
 }
 
 // App
 const app = express();
 
-// TODO: Hole dir Buchungen von Datum bis Datum
 app.post('/getCurrentBookings', [jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
@@ -167,18 +179,20 @@ app.get('/getBookingByUser/:loginName', async function (req, res) {
 app.post('/createBooking', [jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
-        let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
+        let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
+                                                        "fahrzeugModel", "dauerDerBuchung",
                                                         "name", "vorname", "strasße", "hausnummer", "plz"]);
 
         // frage die aktuellste Buchungsnummer ab
-        let aktuelleBuchung = await buchungenDB.findOne({}, null, {sort: {buchungsNummer: 1}});
-        let aktuelleBuchungsNummer = 1;
+        let aktuelleBuchung = await buchungenDB.findOne({}, null, {sort: {buchungsNummer: -1}});
+        let aktuelleBuchungsNummer = 0;
 
         // Wenn keine Buchungen vorhanden sind
         if(aktuelleBuchung) {
-            aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer + 1;
+            aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer;
         }
         aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
+        console.log(aktuelleBuchungsNummer);
         let preisNetto = params.dauerDerBuchung * preisTabelle["Kombi"];
 
 
@@ -191,26 +205,11 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             dauerDerBuchung: params.dauerDerBuchung,
             preisNetto: preisNetto,
             preisBrutto: preisNetto * 1.19,
-            bezahlt: false,
-            storniert: false
+            status: "created"
         });
+        console.log("Buchung wurde erfolgreich erstellt");
+        res.status(200).send(aktuelleBuchungsNummer.toString());
 
-        // Schritt 2: Erstelle Rechnung
-        let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
-                        "nachname": params.nachname, "straße": params.straße,
-                        "hausnummer": params.hausnummer, "plz": params.plz,
-                        "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
-                        "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
-                        "preisNetto": params.preisNetto, "buchungsNummer": aktuelleBuchungsNummer};
-
-        // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden !
-        // Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-        await makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
-
-        // Schritt 3: Führe Bezahlung durch
-        // TODO: Payment noch hier einfügen
-	console.log("Buchung wurde erfolgreich erstellt");
-        res.status(200).send("Buchung wurde erfolgeich erstellt");
     } catch(err){
         console.log(err);
         res.status(401).send(err);
@@ -218,17 +217,110 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
 
 });
 
+app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, res) {
+    try {
+        let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
+                                                        "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
+                                                        "nachname", "vorname", "strasße", "hausnummer", "plz"]);
+
+        let buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+
+        if(buchung && buchung[0] && buchung[0].status == "created") {
+            console.log("Erstelle Rechnung mithilfe dem MS Rechnungsverwaltung")
+            // Schritt 2: Erstelle Rechnung
+            let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
+                "nachname": params.nachname, "straße": params.straße,
+                "hausnummer": params.hausnummer, "plz": params.plz,
+                "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
+                "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
+                "preisNetto": params.preisNetto, "buchungsNummer": params.buchungsNummer};
+
+            // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
+            await makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+            buchung[0].status = "open";
+            buchung[0].save();
+            res.status(200).send("Rechung wurde erfolgreich erstellt");
+        } else  {
+            res.status(401).send("Rechnung konnte nicht erstellt werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Created befindet");
+        }
+    } catch(err){
+        console.log(err);
+        res.status(401).send(err);
+    }
+});
+
+app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
+    try {
+        await mongoose.connect(dbconfig.url);
+        let params = checkParams(req, res,["buchungsNummer"]);
+        if(buchung && buchung.status == "open") {
+            // Schritt 3: Führe Bezahlung durch
+            // TODO: Payment noch hier einfügen
+            buchung.status = "paid";
+            buchung.save();
+            res.status(200).send("Buchung wurde erfolgreich bezahlt");
+        }
+        else  {
+            res.status(401).send("Buchung konnte nicht bezahlt werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Open befindet");
+        }
+    } catch(err){
+        console.log('db error');
+        res.status(401).send(err);
+    }
+});
+
 app.post('/cancelBooking/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
 
-        // TODO: Direkt eine Gutschrift als Rechnung erstellen und PAyment in Auftrag geben
+        if(buchung && buchung.status == "paid") {
+            const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+            // TODO: Direkt eine Gutschrift als Rechnung erstellen und Payment in Auftrag geben -> ebenfalls schauen wie dann gutschrift überwiesen wird
+            buchung.status = "cancelled";
+            buchung.save();
+            res.send(200, "Buchung wurde erfolgeich storniert");
+        }
 
-        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-        buchung.storniert = true;
-        buchung.save();
         res.send(200, "Buchung wurde erfolgeich storniert");
+    } catch(err){
+        console.log('db error');
+        res.status(401).send(err);
+    }
+});
+
+app.post('/startTrip/:buchungsNummer',  async function (req, res) {
+    try {
+        await mongoose.connect(dbconfig.url);
+        let params = checkParams(req, res,["buchungsNummer"]);
+        if(buchung && buchung.status == "paid") {
+            const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+            buchung.status = "started";
+            buchung.save();
+            res.send(200, "Trip wurde gestartet");
+        }
+        else {
+            res.status(401).send("Buchung konnte nicht storniert werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Paid befindet");
+        }
+
+    } catch(err){
+        console.log('db error');
+        res.status(401).send(err);
+    }
+});
+
+app.post('/endTrip/:buchungsNummer',  async function (req, res) {
+    try {
+        await mongoose.connect(dbconfig.url);
+        let params = checkParams(req, res,["buchungsNummer"]);
+        if(buchung && buchung.status == "started") {
+            const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+            buchung.status = "finished";
+            buchung.save();
+            res.send(200, "Trip wurde beendet");
+        } else {
+            res.status(401).send("Trip konnte nicht beendet werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Started befindet");
+        }
     } catch(err){
         console.log('db error');
         res.status(401).send(err);
