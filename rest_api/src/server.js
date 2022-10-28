@@ -84,6 +84,8 @@ async function makePostRequest(hostname, port, path, bodyData) {
     // Wie soll der Workflow aussehen wenn dies hier fehlschlägt ?
     // Stichwort Verteilte Transaktionen !!!
 
+    // TODO: Promise funktioniert noch nicht -> schauen warum !
+
     return new Promise((resolve,reject) => {
 
         const options = {
@@ -111,6 +113,7 @@ async function makePostRequest(hostname, port, path, bodyData) {
                         resBody = JSON.parse(resBody);
                         break;
                 }
+                console.log("Post Request war erfolgreich!");
                 resolve(resBody)
             })
         })
@@ -143,7 +146,6 @@ app.get('/getAllBookings', async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
-        console.log(buchungen);
         res.status(200).send(buchungen);
     } catch(err){
         console.log(err);
@@ -158,7 +160,7 @@ app.get('/getBooking/:buchungsNummer', async function (req, res) {
         const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer });
         res.status(200).send(buchung);
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 
@@ -193,9 +195,7 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer;
         }
         aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
-        console.log(aktuelleBuchungsNummer);
         let preisNetto = params.dauerDerBuchung * preisTabelle["Kombi"];
-
 
         // Schritt 1: Erstelle Buchung
         await buchungenDB.create({
@@ -207,7 +207,6 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             preisNetto: preisNetto,
             status: "created"
         });
-        console.log("Buchung wurde erfolgreich erstellt");
         res.status(200).send(aktuelleBuchungsNummer.toString());
 
     } catch(err){
@@ -227,7 +226,6 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
         let buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
 
         if(buchung && buchung[0] && buchung[0].status == "created") {
-            console.log("Erstelle Rechnung mithilfe dem MS Rechnungsverwaltung")
             // Schritt 2: Erstelle Rechnung
             let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
                 "nachname": params.nachname, "straße": params.straße,
@@ -237,10 +235,11 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
                 "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer};
 
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-            await makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+            let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+            await promise;
+
             buchung[0].status = "open";
             buchung[0].save();
-            res.status(200).send("Rechung wurde erfolgreich erstellt");
         } else  {
             res.status(401).send("Rechnung konnte nicht erstellt werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Created befindet");
         }
@@ -300,7 +299,6 @@ app.post('/startTrip/:buchungsNummer',  async function (req, res) {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
         const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-        console.log(buchung);
         if(buchung && buchung[0] && buchung[0].status == "paid") {
             buchung[0].status = "started";
             buchung[0].save();
@@ -309,7 +307,6 @@ app.post('/startTrip/:buchungsNummer',  async function (req, res) {
         else {
             res.status(401).send("Buchung konnte nicht gestartet werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Paid befindet");
         }
-
     } catch(err){
         console.log(err);
         res.status(401).send(err);
