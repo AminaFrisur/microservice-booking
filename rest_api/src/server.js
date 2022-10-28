@@ -195,7 +195,7 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
             aktuelleBuchungsNummer = aktuelleBuchung.buchungsNummer;
         }
         aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
-        let preisNetto = params.dauerDerBuchung * preisTabelle["Kombi"];
+        let preisNetto = preisTabelle[params.fahrzeugTyp];
 
         // Schritt 1: Erstelle Buchung
         await buchungenDB.create({
@@ -224,7 +224,6 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
         let preisNetto = preisTabelle[params.fahrzeugTyp];                                  
 
         let buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-
         if(buchung && buchung[0] && buchung[0].status == "created") {
             // Schritt 2: Erstelle Rechnung
             let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
@@ -232,7 +231,7 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
                 "hausnummer": params.hausnummer, "plz": params.plz,
                 "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
                 "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
-                "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer};
+                "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": false};
 
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
             let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
@@ -240,6 +239,8 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
 
             buchung[0].status = "open";
             buchung[0].save();
+
+            res.status(200).send(`Rechnung zur Buchung ${buchung[0].buchungsNummer} wurde erfolgreich erstellt.`);
         } else  {
             res.status(401).send("Rechnung konnte nicht erstellt werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Created befindet");
         }
@@ -259,6 +260,12 @@ app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
             // TODO: Payment noch hier einfügen
             buchung[0].status = "paid";
             buchung[0].save();
+            // Schritt 4: Rechnung auf Bezahlt markieren
+            // HIER DAS PROBLEM MIT VERTEILTEN TRANSAKTIONEN -> Loesung: einzelner Batch Job der schaut ob Buchungen und Rechnungen jeweils dann auf Paid sind oder nicht
+            // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
+            let bodyData = {};
+            let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsPaid/" + buchung[0].buchungsNummer, bodyData );
+            await promise;
             res.status(200).send("Buchung wurde erfolgreich bezahlt");
         }
         else  {
@@ -270,18 +277,36 @@ app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
     }
 });
 
-app.post('/cancelBooking/:buchungsNummer',  async function (req, res) {
+app.post('/cancelBooking', [jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
-        let params = checkParams(req, res,["buchungsNummer"]);
+        let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
+                                                        "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
+                                                        "nachname", "vorname", "straße", "hausnummer", "plz"]);
 
 	    const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
 	    if(buchung && buchung[0] && buchung[0].status != "started" && buchung[0].status != "finished"){
 
             if(buchung[0].status == "paid") {
-                // TODO: Direkt eine Gutschrift als Rechnung erstellen und Payment in Auftrag geben -> ebenfalls schauen wie dann gutschrift überwiesen wird
-            }
+                let preisNetto = preisTabelle[params.fahrzeugTyp];
+                let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
+                    "nachname": params.nachname, "straße": params.straße,
+                    "hausnummer": params.hausnummer, "plz": params.plz,
+                    "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
+                    "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
+                    // TODO: Eventuell noch mahn gebühren hier einfügen -> Also für das Stornieren -> Zudem auch Zeitintervall prüfen -> Falls 1 Stunde vor Buchung -> kein Stornieren mehr möglich
+                    "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": true};
+                    // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
+                    let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+                    await promise;
 
+            } else if (buchung[0].status == "open") {
+                // Storniere die unbezahlte Rechnung
+                // /markInvoiceAsCancelled/:buchungsNummer
+                let bodyData = {};
+                let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsCancelled/" + params.buchungsNummer, bodyData );
+                await promise;
+            }
             buchung[0].status = "cancelled";
             buchung[0].save();
             res.status(200).send("Buchung wurde erfolgeich storniert");
