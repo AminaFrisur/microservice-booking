@@ -4,6 +4,7 @@
 // TODO: Prüfen des Auth Tokens ! -> Statt in der DB einfach hier über einen simplen Zwischenspeicher lösen -> bei späteren Lösungen vorsicht ! Mutex einfügen -> bei Javascript nicht nötig
 // TODO: Benutzerverwaltung muss auth Token checken
 // TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
+// TODO: Wenn Buchung == Paid -> Gutschrift -> extra Call im Rechnungsverwaltungs Microservice
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -142,6 +143,7 @@ app.get('/getAllBookings', async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
+        console.log(buchungen);
         res.status(200).send(buchungen);
     } catch(err){
         console.log(err);
@@ -252,18 +254,19 @@ app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
-        if(buchung && buchung.status == "open") {
+        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+        if(buchung && buchung[0] && buchung[0].status == "open"){
             // Schritt 3: Führe Bezahlung durch
             // TODO: Payment noch hier einfügen
-            buchung.status = "paid";
-            buchung.save();
+            buchung[0].status = "paid";
+            buchung[0].save();
             res.status(200).send("Buchung wurde erfolgreich bezahlt");
         }
         else  {
             res.status(401).send("Buchung konnte nicht bezahlt werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Open befindet");
         }
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 });
@@ -273,17 +276,21 @@ app.post('/cancelBooking/:buchungsNummer',  async function (req, res) {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
 
-        if(buchung && buchung.status == "paid") {
-            const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-            // TODO: Direkt eine Gutschrift als Rechnung erstellen und Payment in Auftrag geben -> ebenfalls schauen wie dann gutschrift überwiesen wird
-            buchung.status = "cancelled";
-            buchung.save();
-            res.send(200, "Buchung wurde erfolgeich storniert");
-        }
+	    const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+	    if(buchung && buchung[0] && buchung[0].status != "started" && buchung[0].status != "finished"){
 
-        res.send(200, "Buchung wurde erfolgeich storniert");
+            if(buchung[0].status == "paid") {
+                // TODO: Direkt eine Gutschrift als Rechnung erstellen und Payment in Auftrag geben -> ebenfalls schauen wie dann gutschrift überwiesen wird
+            }
+
+            buchung[0].status = "cancelled";
+            buchung[0].save();
+            res.status(200).send("Buchung wurde erfolgeich storniert");
+        }  else  {
+            res.status(401).send("Buchung konnte nicht storniert werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Paid befindet");
+        }
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 });
@@ -292,18 +299,19 @@ app.post('/startTrip/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
-        if(buchung && buchung.status == "paid") {
-            const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-            buchung.status = "started";
-            buchung.save();
-            res.send(200, "Trip wurde gestartet");
+        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+        console.log(buchung);
+        if(buchung && buchung[0] && buchung[0].status == "paid") {
+            buchung[0].status = "started";
+            buchung[0].save();
+            res.status(200).send( "Trip wurde gestartet");
         }
         else {
-            res.status(401).send("Buchung konnte nicht storniert werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Paid befindet");
+            res.status(401).send("Buchung konnte nicht gestartet werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Paid befindet");
         }
 
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 });
@@ -312,16 +320,16 @@ app.post('/endTrip/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
-        if(buchung && buchung.status == "started") {
-            const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-            buchung.status = "finished";
-            buchung.save();
-            res.send(200, "Trip wurde beendet");
+        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+        if(buchung && buchung[0] && buchung[0].status == "started") {
+            buchung[0].status = "finished";
+            buchung[0].save();
+            res.status(200).send("Trip wurde beendet");
         } else {
             res.status(401).send("Trip konnte nicht beendet werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Started befindet");
         }
     } catch(err){
-        console.log('db error');
+        console.log(err);
         res.status(401).send(err);
     }
 });
