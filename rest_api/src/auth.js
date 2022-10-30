@@ -7,10 +7,18 @@ module.exports = function() {
     // Anschließend erfolgt eine Abfrage an MS Benutzerverwaltung
     // Booking MS speichert bei erfolg diesen zwischen (Key Value Store) mit den Parametern auth Token, Datum, Login Name
 
-    module.checkAuth = async function(req, res, next) {
+    module.checkAuthAdmin = function (req, res, next){
+        checkAuth(req, res, true, next);
+    };
+
+    module.checkAuthUser = function (req, res, next) {
+        checkAuth(req, res, false, next);
+    }
+
+    async function checkAuth(req, res, isAdmin, next) {
         let auth_token = req.headers.auth_token;
         let login_name = req.headers.login_name;
-        let bodyData = {"login_name":login_name, "auth_token": auth_token};
+        let bodyData = {"login_name":login_name, "auth_token": auth_token, "isAdmin": isAdmin};
         try {
             let result = await http_client.makePostRequest("rest-api-benutzerverwaltung1", "8000", "/checkAuthUser", bodyData);
             let login_data = JSON.parse(result);

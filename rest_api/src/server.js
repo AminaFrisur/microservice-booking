@@ -2,9 +2,7 @@
 // TODO: GENERELL -> Authentifizierung zwischen Microservices muss noch umgesetzt werden
 // TODO: Umgebungsvariablen beim Start des Containers mit einfügen -> Umgebungsvariable für Router MongoDB
 // TODO: Prüfen des Auth Tokens ! -> Statt in der DB einfach hier über einen simplen Zwischenspeicher lösen -> bei späteren Lösungen vorsicht ! Mutex einfügen -> bei Javascript nicht nötig
-// TODO: Benutzerverwaltung muss auth Token checken
 // TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
-// TODO: Wenn Buchung == Paid -> Gutschrift -> extra Call im Rechnungsverwaltungs Microservice
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -92,11 +90,11 @@ function checkParams(req, res, requiredParams) {
 // App
 const app = express();
 
-app.post('/getCurrentBookings', [auth.checkAuth, jsonBodyParser], async function (req, res) {
+app.post('/getCurrentBookings', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
         await mongoose.connect(dbconfig.url);
-        const buchungen = await buchungenDB.find({"buchungsDatum": {$gte:params.von,$lt:params.bis}});
+        const buchungen = await buchungenDB.find({"buchungsDatum": {$gte:params.von, $lt:params.bis}});
         res.status(200).send(buchungen);
     } catch(err){
         console.log(err);
@@ -106,7 +104,7 @@ app.post('/getCurrentBookings', [auth.checkAuth, jsonBodyParser], async function
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getAllBookings', [auth.checkAuth], async function (req, res) {
+app.get('/getAllBookings', [auth.checkAuthAdmin], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
@@ -117,7 +115,7 @@ app.get('/getAllBookings', [auth.checkAuth], async function (req, res) {
     }
 });
 
-app.get('/getBooking/:buchungsNummer',[auth.checkAuth], async function (req, res) {
+app.get('/getBooking/:buchungsNummer',[auth.checkAuthUser], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
@@ -130,7 +128,7 @@ app.get('/getBooking/:buchungsNummer',[auth.checkAuth], async function (req, res
 
 });
 
-app.get('/getBookingByUser/:loginName',[auth.checkAuth], async function (req, res) {
+app.get('/getBookingByUser/:loginName',[auth.checkAuthUser], async function (req, res) {
     try {
         let params = checkParams(req, res,["loginName"]);
         await mongoose.connect(dbconfig.url)
@@ -143,7 +141,7 @@ app.get('/getBookingByUser/:loginName',[auth.checkAuth], async function (req, re
 
 });
 
-app.post('/createBooking', [auth.checkAuth, jsonBodyParser], async function (req, res) {
+app.post('/createBooking', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
@@ -180,7 +178,7 @@ app.post('/createBooking', [auth.checkAuth, jsonBodyParser], async function (req
 
 });
 
-app.post('/createInvoiceForNewBooking', [auth.checkAuth, jsonBodyParser], async function (req, res) {
+app.post('/createInvoiceForNewBooking', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
                                            "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
@@ -214,7 +212,7 @@ app.post('/createInvoiceForNewBooking', [auth.checkAuth, jsonBodyParser], async 
     }
 });
 
-app.post('/payOpenBooking/:buchungsNummer', [auth.checkAuth],  async function (req, res) {
+app.post('/payOpenBooking/:buchungsNummer', [auth.checkAuthUser],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -241,7 +239,7 @@ app.post('/payOpenBooking/:buchungsNummer', [auth.checkAuth],  async function (r
     }
 });
 
-app.post('/cancelBooking', [auth.checkAuth, jsonBodyParser], async function (req, res) {
+app.post('/cancelBooking', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
@@ -283,7 +281,7 @@ app.post('/cancelBooking', [auth.checkAuth, jsonBodyParser], async function (req
     }
 });
 
-app.post('/startTrip/:buchungsNummer', [auth.checkAuth],  async function (req, res) {
+app.post('/startTrip/:buchungsNummer', [auth.checkAuthUser],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -302,7 +300,7 @@ app.post('/startTrip/:buchungsNummer', [auth.checkAuth],  async function (req, r
     }
 });
 
-app.post('/endTrip/:buchungsNummer', [auth.checkAuth],  async function (req, res) {
+app.post('/endTrip/:buchungsNummer', [auth.checkAuthUser],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
