@@ -13,6 +13,14 @@ var jsonBodyParser = bodyParser.json({ type: 'application/json' });
 const PORT = 8000;
 const HOST = '0.0.0.0';
 const mongoose = require('mongoose');
+var auth = require('./auth.js')();
+var http_client = require('./http_client.js')();
+
+
+// Key Value Store:
+// Hier werden Auth Token zwischengespeichert
+// Werden also somit nur gecached
+// Könnte man theoretisch auch für die Bentzerverwaltung überlegen
 
 mongoose.Promise = global.Promise;
 const dbconfig = {
@@ -77,58 +85,14 @@ function checkParams(req, res, requiredParams) {
 }
 
 // HTTP Requests für Rechnungsverwaltung und Payment
-const http = require('http');
 
-async function makePostRequest(hostname, port, path, bodyData) {
-    // Hier gibt es übrigens ein Problem
-    // Wie soll der Workflow aussehen wenn dies hier fehlschlägt ?
-    // Stichwort Verteilte Transaktionen !!!
 
-    // TODO: Promise funktioniert noch nicht -> schauen warum !
 
-    return new Promise((resolve,reject) => {
-
-        const options = {
-            hostname: hostname,
-            port: port,
-            path: path,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        };
-
-        const postData = JSON.stringify(bodyData);
-
-        const req = http.request({
-            method: 'POST',
-            ...options,
-        }, res => {
-            const chunks = [];
-            res.on('data', data => chunks.push(data))
-            res.on('end', () => {
-                let resBody = Buffer.concat(chunks);
-                switch(res.headers['content-type']) {
-                    case 'application/json':
-                        resBody = JSON.parse(resBody);
-                        break;
-                }
-                console.log("Post Request war erfolgreich!");
-                resolve(resBody)
-            })
-        })
-        req.on('error',reject);
-        if(postData) {
-            req.write(postData);
-        }
-        req.end();
-    })
-}
 
 // App
 const app = express();
 
-app.post('/getCurrentBookings', [jsonBodyParser], async function (req, res) {
+app.post('/getCurrentBookings', [auth.checkAuth, jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
         await mongoose.connect(dbconfig.url);
@@ -142,7 +106,7 @@ app.post('/getCurrentBookings', [jsonBodyParser], async function (req, res) {
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getAllBookings', async function (req, res) {
+app.get('/getAllBookings', [auth.checkAuth], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
@@ -153,7 +117,7 @@ app.get('/getAllBookings', async function (req, res) {
     }
 });
 
-app.get('/getBooking/:buchungsNummer', async function (req, res) {
+app.get('/getBooking/:buchungsNummer',[auth.checkAuth], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
@@ -166,7 +130,7 @@ app.get('/getBooking/:buchungsNummer', async function (req, res) {
 
 });
 
-app.get('/getBookingByUser/:loginName', async function (req, res) {
+app.get('/getBookingByUser/:loginName',[auth.checkAuth], async function (req, res) {
     try {
         let params = checkParams(req, res,["loginName"]);
         await mongoose.connect(dbconfig.url)
@@ -179,7 +143,7 @@ app.get('/getBookingByUser/:loginName', async function (req, res) {
 
 });
 
-app.post('/createBooking', [jsonBodyParser], async function (req, res) {
+app.post('/createBooking', [auth.checkAuth, jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
@@ -216,7 +180,7 @@ app.post('/createBooking', [jsonBodyParser], async function (req, res) {
 
 });
 
-app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, res) {
+app.post('/createInvoiceForNewBooking', [auth.checkAuth, jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
                                            "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
@@ -234,7 +198,7 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
                 "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": false};
 
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-            let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+            let promise = http_client.makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
             await promise;
 
             buchung[0].status = "open";
@@ -250,7 +214,7 @@ app.post('/createInvoiceForNewBooking', [jsonBodyParser], async function (req, r
     }
 });
 
-app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
+app.post('/payOpenBooking/:buchungsNummer', [auth.checkAuth],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -264,7 +228,7 @@ app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
             // HIER DAS PROBLEM MIT VERTEILTEN TRANSAKTIONEN -> Loesung: einzelner Batch Job der schaut ob Buchungen und Rechnungen jeweils dann auf Paid sind oder nicht
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
             let bodyData = {};
-            let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsPaid/" + buchung[0].buchungsNummer, bodyData );
+            let promise = http_client.makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsPaid/" + buchung[0].buchungsNummer, bodyData );
             await promise;
             res.status(200).send("Buchung wurde erfolgreich bezahlt");
         }
@@ -277,7 +241,7 @@ app.post('/payOpenBooking/:buchungsNummer',  async function (req, res) {
     }
 });
 
-app.post('/cancelBooking', [jsonBodyParser], async function (req, res) {
+app.post('/cancelBooking', [auth.checkAuth, jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
@@ -319,7 +283,7 @@ app.post('/cancelBooking', [jsonBodyParser], async function (req, res) {
     }
 });
 
-app.post('/startTrip/:buchungsNummer',  async function (req, res) {
+app.post('/startTrip/:buchungsNummer', [auth.checkAuth],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -338,7 +302,7 @@ app.post('/startTrip/:buchungsNummer',  async function (req, res) {
     }
 });
 
-app.post('/endTrip/:buchungsNummer',  async function (req, res) {
+app.post('/endTrip/:buchungsNummer', [auth.checkAuth],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
