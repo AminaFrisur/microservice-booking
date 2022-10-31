@@ -1,4 +1,3 @@
-const http = require("http");
 module.exports = function() {
     const http = require('http');
     var module = {};

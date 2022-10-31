@@ -3,7 +3,6 @@
 // TODO: Umgebungsvariablen beim Start des Containers mit einfügen -> Umgebungsvariable für Router MongoDB
 // TODO: Prüfen des Auth Tokens ! -> Statt in der DB einfach hier über einen simplen Zwischenspeicher lösen -> bei späteren Lösungen vorsicht ! Mutex einfügen -> bei Javascript nicht nötig
 // TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
-
 const express = require('express');
 const bodyParser = require('body-parser');
 var jsonBodyParser = bodyParser.json({ type: 'application/json' });
@@ -11,9 +10,27 @@ var jsonBodyParser = bodyParser.json({ type: 'application/json' });
 const PORT = 8000;
 const HOST = '0.0.0.0';
 const mongoose = require('mongoose');
-var auth = require('./auth.js')();
-var http_client = require('./http_client.js')();
 
+// Erstelle einen Cache um Token zwischenzuspeichern
+var UserCache = require('./store.js');
+var cache = new UserCache();
+
+
+let auth = require('./auth.js')();
+
+let http_client = require('./http_client.js')();
+
+const middlerwareWrapper = (cache, isAdmin) => {
+    return (req, res, next) => {
+        auth.checkAuth(req, res, isAdmin, cache, next);
+    }
+}
+
+const middlerwareWrapperAdmin = (cache) => {
+    return (req, res, next) => {
+        auth.checkAuthAdmin(req, res, cache, next);
+    }
+}
 
 // Key Value Store:
 // Hier werden Auth Token zwischengespeichert
@@ -82,15 +99,11 @@ function checkParams(req, res, requiredParams) {
     return  paramsToReturn;
 }
 
-// HTTP Requests für Rechnungsverwaltung und Payment
-
-
-
-
 // App
 const app = express();
 
-app.post('/getCurrentBookings', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
+// TODO: Nochmal schauen ob das so im Frontend später in Ordnung ist
+app.post('/getCurrentBookings', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
         await mongoose.connect(dbconfig.url);
@@ -104,7 +117,7 @@ app.post('/getCurrentBookings', [auth.checkAuthUser, jsonBodyParser], async func
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getAllBookings', [auth.checkAuthAdmin], async function (req, res) {
+app.get('/getAllBookings', [middlerwareWrapper(cache, true)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
@@ -115,7 +128,7 @@ app.get('/getAllBookings', [auth.checkAuthAdmin], async function (req, res) {
     }
 });
 
-app.get('/getBooking/:buchungsNummer',[auth.checkAuthUser], async function (req, res) {
+app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache)], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
@@ -128,7 +141,7 @@ app.get('/getBooking/:buchungsNummer',[auth.checkAuthUser], async function (req,
 
 });
 
-app.get('/getBookingByUser/:loginName',[auth.checkAuthUser], async function (req, res) {
+app.get('/getBookingByUser/:loginName',[middlerwareWrapper(cache, false)], async function (req, res) {
     try {
         let params = checkParams(req, res,["loginName"]);
         await mongoose.connect(dbconfig.url)
@@ -141,7 +154,7 @@ app.get('/getBookingByUser/:loginName',[auth.checkAuthUser], async function (req
 
 });
 
-app.post('/createBooking', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
+app.post('/createBooking', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
@@ -178,7 +191,7 @@ app.post('/createBooking', [auth.checkAuthUser, jsonBodyParser], async function 
 
 });
 
-app.post('/createInvoiceForNewBooking', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
+app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
                                            "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
@@ -212,7 +225,7 @@ app.post('/createInvoiceForNewBooking', [auth.checkAuthUser, jsonBodyParser], as
     }
 });
 
-app.post('/payOpenBooking/:buchungsNummer', [auth.checkAuthUser],  async function (req, res) {
+app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -239,7 +252,7 @@ app.post('/payOpenBooking/:buchungsNummer', [auth.checkAuthUser],  async functio
     }
 });
 
-app.post('/cancelBooking', [auth.checkAuthUser, jsonBodyParser], async function (req, res) {
+app.post('/cancelBooking', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
@@ -281,7 +294,7 @@ app.post('/cancelBooking', [auth.checkAuthUser, jsonBodyParser], async function 
     }
 });
 
-app.post('/startTrip/:buchungsNummer', [auth.checkAuthUser],  async function (req, res) {
+app.post('/startTrip/:buchungsNummer', [middlerwareWrapper(cache, false)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -300,7 +313,7 @@ app.post('/startTrip/:buchungsNummer', [auth.checkAuthUser],  async function (re
     }
 });
 
-app.post('/endTrip/:buchungsNummer', [auth.checkAuthUser],  async function (req, res) {
+app.post('/endTrip/:buchungsNummer', [middlerwareWrapper(cache, false)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
