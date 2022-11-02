@@ -21,19 +21,21 @@ module.exports = function() {
             let bodyData = {"login_name":loginName, "auth_token": authToken, "isAdmin": isAdmin};
             try {
                 let loginData = await httpClient.circuitBreakerPostRequest("rest-api-benutzerverwaltung1", "8000", "/checkAuthUser", bodyData);
-                console.log(loginData);
-                if(loginData[0].auth_token && loginData[0].auth_token_timestamp) {
-                    cache.updateOrInsertCachedUser(userIndexinCache, loginName, loginData[0].auth_token, loginData[0].auth_token_timestamp, isAdmin);
+                console.log("Authentification: Request checkAuthUser ergab folgendes Ergebnis: " + loginData);
+                // TODO: Mal überlegen ob das wirklich so RAW von der Benutzerverwaltung übergeben werden soll
+                if(loginData) {
+                    cache.updateOrInsertCachedUser(userIndexinCache, loginName, loginData[0].auth_token, loginData[0].auth_token_timestamp, loginData[0].is_admin);
                     next();
                 } else {
+                    console.log("Authentification: Token ist laut Benutzerverwaltung nicht valide");
                     res.status(401).send("token and/or login name are missing or are not valid");
                 }
             } catch(e) {
-                console.log(e);
-                res.status(401).send("token and/or login name are missing or are not valid");
+                console.log("Authentification: Reqeust schlug fehl ->" + e);
+                res.status(401).send("Request zur Benutzerverwaltung schlug fehl!!");
             }
         } else {
-            console.log("Nutzer ist noch zwischengespeichert");
+            console.log("Authentification: Nutzer ist noch zwischengespeichert");
             next();
         }
 

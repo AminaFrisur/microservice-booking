@@ -5,12 +5,15 @@ class UserCache {
     maxSize;
 
     // TODO: nicht das komplette Date speichern
+    // Viel zu speicher Intensiv
     // TODO: PROBLEM FALL: Was passiert wenn altes Token noch mitgesendet wird ->
     // TODO: Wenn Benutzerverwaltung ein neues Token für den User erstellt, muss es irgendwie auch die Booking Komponente benachrichtigen
-    // TODO: DIe weiß sonst nicht ob das Token überhaupt noch valide ist
-    // TODO: Lösung: Registriere alle Aufrufe von Buchung auf Benutzerverwaltung
-    // TODO: Falls sich bei den Usern dort etwas ändert -> benachrichtige den Booking Service
-    // Viel zu speicher Intensiv
+    // TODO: Die weiß sonst nicht ob das Token überhaupt noch valide ist
+    // TODO: Mögliche Lösung: Registriere alle Aufrufe von Buchung auf Benutzerverwaltung -> Rufe dann extra die Buchungsverwaltung auf -> Zu Aufwendig
+    // TODO: Es müsste jede Instanz von Buchungsverwaltung benachrichtigt werden über HTTP
+    // TODO: Zwei Lösungsansätze:
+    // TODO: Lösung 1: Erstelle einfach kein neues Token sondern sende solange das Alte mit bis timestamp abgelaufen ist -> Somit kein Problem bei neuen Token, da der Timestamp bei beiden überprüft wird
+    // TODO: Lösung 2: Nutze eine Event Kommunikation, in der Berichtet wird, das ein User ein neues Token bekommen hat -> Beispiel mit Apache Kafka -> Weiß aber auch nicht ob das zuviel Kommunikation darstellt
 
     // Cache Strategie:
     // wenn checkToken erfolgreich -> speichere Nutzer, Token, Token Timestamp in cachedUser
@@ -33,7 +36,7 @@ class UserCache {
 
     clearCache() {
         // Map speichert in Insertion Order
-        console.log("clear cache");
+        console.log("Cache: clear cache");
         if (this.cachedUser.size > this.maxSize) {
             // kompletter reset des caches
             // sollte aber eigentlich nicht passieren
@@ -45,8 +48,8 @@ class UserCache {
         let check = true;
 
         while (check) {
-            tempIndex = tempIndex / 2;
-            console.log("TempIndex ist " + tempIndex);
+            tempIndex = parseInt(tempIndex / 2);
+            console.log("Cache: TempIndex ist " + tempIndex);
             // Falls im Cache nur ein Element ist
             if (tempIndex >= 1) {
 
@@ -57,7 +60,7 @@ class UserCache {
                 // Wenn für den Eintrag die Cache Time erreicht ist -> lösche die hälfte vom Part des Arrays was betrachtet wird
                 // Damit sind dann nicht alle alten Cache einträge gelöscht -> aber das clearen vom Cache sollte schnell gehen
                 if (timeDiff >= this.cacheTime) {
-                    console.log("Clear Cache");
+                    console.log("Cache: Clear Cache");
                     this.cachedUser = [
                         ...this.cachedUser.slice(tempIndex)
                     ]
@@ -70,14 +73,13 @@ class UserCache {
 
                 // auch wenn das eine Element im Array ein alter Eintrag ist
                 // kann dies vernachlässigt werden bzw. ist nicht so wichtig
-                console.log("nichts zu clearen")
+                console.log("Cache: nichts zu clearen")
                 check = false;
             }
 
 
         }
     }
-
 
     getUserIndex(loginName) {
         // an dieser Stelle erst den Cache leeren
@@ -90,12 +92,12 @@ class UserCache {
             if(this.cachedUser[i].loginName == loginName) {
                 finalIndex = i;
                 // Auch beim Suchen eines Users -> Timestamp für Cache Eintrag aktualisieren
-                console.log("Update Timestamp vom Cache Eintrag");
+                console.log("Cache: Update Timestamp vom Cache Eintrag");
                 this.cachedUser[i].cacheTimestamp = new Date();
                 break;
             }
         }
-        console.log("User Index ist:" + finalIndex);
+        console.log("Cache: User Index ist:" + finalIndex);
         return finalIndex;
     }
 
@@ -103,7 +105,7 @@ class UserCache {
     updateOrInsertCachedUser(index, loginName, authToken, authTokenTimestamp, isAdmin) {
         if(index >= 0 ) {
             // update Nutzer
-            console.log("mache ein Update zum User");
+            console.log("Cache: mache ein Update zum User");
             let user = this.cachedUser[index];
             user.authToken = authToken;
             user.authTokenTimestamp = authTokenTimestamp;
@@ -112,13 +114,12 @@ class UserCache {
                 ...this.cachedUser.slice(0, index),
                 ...this.cachedUser.slice(index + 1)
             ]
-            console.log("ARRAY UPDATE")
-            console.log(this.cachedUser);
+            console.log("Cache: update User Cache");
             this.cachedUser.push(user);
             console.log(this.cachedUser);
         } else {
             // Füge User neu im Cache hinzu, da nicht im cache vorhanden
-            console.log("Füge neuen Eintrag in Cache hinzu");
+            console.log("Cache: Füge neuen Eintrag in Cache hinzu");
             this.cachedUser.push({"loginName": loginName,"authToken": authToken, "authTokenTimestamp": authTokenTimestamp, "isAdmin": isAdmin, "cacheTimestamp": new Date()});
             console.log(this.cachedUser);
         }
@@ -129,8 +130,8 @@ class UserCache {
     checkToken(index, authToken, isAdmin) {
         // User wurde gefunden, prüfe nun token und Timestamp vom token
         if(index >= 0) {
-            if(authToken != this.cachedUser[index].authToken) {console.log("Auth Token ist falsch"); return false};
-            if(this.cachedUser[index].isAdmin != true && isAdmin == true) {console.log("isAdmin ist false"); return false};
+            if(authToken != this.cachedUser[index].authToken) {console.log("Cache: Token aus dem Header stimmt nicht mit dem Token aus dem cache überein"); return false};
+            if(this.cachedUser[index].isAdmin != true && isAdmin == true) {console.log("Cache: isAdmin ist false"); return false};
 
             // Rechne von Millisekunden auf Stunden um
             let timeDiff = (new Date() - this.cachedUser[index].authTokenTimestamp) / 3600000;

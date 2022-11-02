@@ -19,7 +19,7 @@ var cache = new UserCache(300000, 10000);
 let auth = require('./auth.js')();
 
 var CircuitBreaker = require('./circuitBreaker.js');
-var httpClient = new CircuitBreaker(150, 30, 0, -15, 8, 15);
+var httpClient = new CircuitBreaker(150, 30, 0, -5, 3, 5);
 
 const middlerwareWrapper = (cache, isAdmin, httpClient) => {
     return (req, res, next) => {
