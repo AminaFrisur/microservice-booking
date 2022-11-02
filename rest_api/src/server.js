@@ -1,8 +1,8 @@
 'use strict';
 // TODO: GENERELL -> Authentifizierung zwischen Microservices muss noch umgesetzt werden
 // TODO: Umgebungsvariablen beim Start des Containers mit einfügen -> Umgebungsvariable für Router MongoDB
-// TODO: Prüfen des Auth Tokens ! -> Statt in der DB einfach hier über einen simplen Zwischenspeicher lösen -> bei späteren Lösungen vorsicht ! Mutex einfügen -> bei Javascript nicht nötig
 // TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
+
 const express = require('express');
 const bodyParser = require('body-parser');
 var jsonBodyParser = bodyParser.json({ type: 'application/json' });
@@ -13,22 +13,17 @@ const mongoose = require('mongoose');
 
 // Erstelle einen Cache um Token zwischenzuspeichern
 var UserCache = require('./store.js');
-var cache = new UserCache();
+var cache = new UserCache(300000, 10000);
 
 
 let auth = require('./auth.js')();
 
-let http_client = require('./http_client.js')();
+var CircuitBreaker = require('./circuitBreaker.js');
+var httpClient = new CircuitBreaker(150, 30, 0, -15, 8, 15);
 
-const middlerwareWrapper = (cache, isAdmin) => {
+const middlerwareWrapper = (cache, isAdmin, httpClient) => {
     return (req, res, next) => {
-        auth.checkAuth(req, res, isAdmin, cache, next);
-    }
-}
-
-const middlerwareWrapperAdmin = (cache) => {
-    return (req, res, next) => {
-        auth.checkAuthAdmin(req, res, cache, next);
+        auth.checkAuth(req, res, isAdmin, cache, httpClient, next);
     }
 }
 
@@ -103,7 +98,7 @@ function checkParams(req, res, requiredParams) {
 const app = express();
 
 // TODO: Nochmal schauen ob das so im Frontend später in Ordnung ist
-app.post('/getCurrentBookings', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
+app.post('/getCurrentBookings', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
         await mongoose.connect(dbconfig.url);
@@ -117,7 +112,7 @@ app.post('/getCurrentBookings', [middlerwareWrapper(cache, false), jsonBodyParse
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getAllBookings', [middlerwareWrapper(cache, true)], async function (req, res) {
+app.get('/getAllBookings', [middlerwareWrapper(cache, true, httpClient)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
@@ -128,7 +123,7 @@ app.get('/getAllBookings', [middlerwareWrapper(cache, true)], async function (re
     }
 });
 
-app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache)], async function (req, res) {
+app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, httpClient)], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
@@ -154,7 +149,7 @@ app.get('/getBookingByUser/:loginName',[middlerwareWrapper(cache, false)], async
 
 });
 
-app.post('/createBooking', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
+app.post('/createBooking', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
@@ -171,6 +166,8 @@ app.post('/createBooking', [middlerwareWrapper(cache, false), jsonBodyParser], a
         }
         aktuelleBuchungsNummer = aktuelleBuchungsNummer + 1;
         let preisNetto = preisTabelle[params.fahrzeugTyp];
+
+        console.log("Erstelle Buchung");
 
         // Schritt 1: Erstelle Buchung
         await buchungenDB.create({
@@ -191,7 +188,7 @@ app.post('/createBooking', [middlerwareWrapper(cache, false), jsonBodyParser], a
 
 });
 
-app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
+app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
                                            "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
@@ -209,7 +206,7 @@ app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false), jsonB
                 "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": false};
 
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-            let promise = http_client.makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+            let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
             await promise;
 
             buchung[0].status = "open";
@@ -225,7 +222,7 @@ app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false), jsonB
     }
 });
 
-app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false)],  async function (req, res) {
+app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false, httpClient)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -239,7 +236,7 @@ app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false)], 
             // HIER DAS PROBLEM MIT VERTEILTEN TRANSAKTIONEN -> Loesung: einzelner Batch Job der schaut ob Buchungen und Rechnungen jeweils dann auf Paid sind oder nicht
             // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
             let bodyData = {};
-            let promise = http_client.makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsPaid/" + buchung[0].buchungsNummer, bodyData );
+            let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsPaid/" + buchung[0].buchungsNummer, bodyData );
             await promise;
             res.status(200).send("Buchung wurde erfolgreich bezahlt");
         }
@@ -252,7 +249,7 @@ app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false)], 
     }
 });
 
-app.post('/cancelBooking', [middlerwareWrapper(cache, false), jsonBodyParser], async function (req, res) {
+app.post('/cancelBooking', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
@@ -272,14 +269,14 @@ app.post('/cancelBooking', [middlerwareWrapper(cache, false), jsonBodyParser], a
                     // TODO: Eventuell noch mahn gebühren hier einfügen -> Also für das Stornieren -> Zudem auch Zeitintervall prüfen -> Falls 1 Stunde vor Buchung -> kein Stornieren mehr möglich
                     "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": true};
                     // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-                    let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+                    let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
                     await promise;
 
             } else if (buchung[0].status == "open") {
                 // Storniere die unbezahlte Rechnung
                 // /markInvoiceAsCancelled/:buchungsNummer
                 let bodyData = {};
-                let promise = makePostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsCancelled/" + params.buchungsNummer, bodyData );
+                let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsCancelled/" + params.buchungsNummer, bodyData );
                 await promise;
             }
             buchung[0].status = "cancelled";
@@ -294,7 +291,7 @@ app.post('/cancelBooking', [middlerwareWrapper(cache, false), jsonBodyParser], a
     }
 });
 
-app.post('/startTrip/:buchungsNummer', [middlerwareWrapper(cache, false)],  async function (req, res) {
+app.post('/startTrip/:buchungsNummer', [middlerwareWrapper(cache, false, httpClient)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -313,7 +310,7 @@ app.post('/startTrip/:buchungsNummer', [middlerwareWrapper(cache, false)],  asyn
     }
 });
 
-app.post('/endTrip/:buchungsNummer', [middlerwareWrapper(cache, false)],  async function (req, res) {
+app.post('/endTrip/:buchungsNummer', [middlerwareWrapper(cache, false, httpClient)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);

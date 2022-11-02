@@ -1,9 +1,7 @@
-import http from "http";
+const http = require("http");
 
 class CircuitBreaker {
-
-    http = require('http');
-
+    // Open, Half, Closed
     CircuitBreakerState;
     successCount;
     failCount;
@@ -14,12 +12,12 @@ class CircuitBreaker {
     // Timeout für die Circuit Breaker soll bei 30 Sekunden liegen
     timeoutOpenState;
 
-    // Verhältnis successCount und failCount
-    // Wenn -1 dann wechsel in HALF
+    // Verhältnis successCount und failCount:
+    // Verhältnis wann Half State ausgelöst werden soll
     triggerHalfState;
-    // Wenn -10 dann wechsel in OPEN
+    // Verhältnis wann Open State ausgelöst werden soll
     triggerOpenState;
-    // Wenn 8 dann wechsel in Status Closed
+    // Verhältnis wann Closed State ausgelöst werden soll
     triggerClosedState;
 
     timestamp;
@@ -28,23 +26,6 @@ class CircuitBreaker {
     permittedRequestsInStateHalf;
     requestCount;
 
-    // Meine Implementierung: Setze nach Fünf Minuten failCount und successCount auf 0
-
-    constructor() {
-        this.failCount = 0;
-        this.successCount = 0;
-        this.requestCount = 0;
-        this.timeoutReset = 150;
-        this.timeoutOpenState = 30;
-        this.triggerHalfState = 0;
-        this.triggerOpenState = -15;
-        this.triggerClosedState = 8;
-        this.permittedRequestsInStateHalf = 15;
-        this.CircuitBreakerState = "CLOSED";
-        this.timestamp = new Date();
-    }
-
-    // Falls man den Circuit Breaker selbst konfigurieren möchte
     constructor(timeoutReset, timeoutOpenState, triggerHalfState,
                 triggerOpenState, permittedRequestsInStateHalf, triggerClosedState) {
         this.failCount = 0;
@@ -62,8 +43,10 @@ class CircuitBreaker {
 
 
     checkReset(timeDiff) {
+        console.log("Prüfe ob Circuit Breaker Status resetet werden soll");
         if(timeDiff > this.timeoutReset &&
             (this.CircuitBreakerState == "CLOSED" || this.CircuitBreakerState == "HALF")) {
+            console.log("Ja der Circuit Breaker Status soll resettet werden");
             this.failCount = 0;
             this.successCount = 0;
             this.timestamp = new Date();
@@ -72,7 +55,7 @@ class CircuitBreaker {
     }
 
     // hostname = Loadbalancer der an die entsprechenden Microservices innerhalb der Fachlichkeit weiterleiten
-    async wrapPostRequest(hostname, port, path, bodyData) {
+    async circuitBreakerPostRequest(hostname, port, path, bodyData) {
 
         // Schritt 1: Berechne Abstand zwischen gespeicherten timeStamp und aktuellen timeStamp in Sekunden
          let timeDiff = (this.timestamp - new Date()) / 1000;
@@ -83,11 +66,15 @@ class CircuitBreaker {
          //Schritt 3: Prüfe ob timeout für Zustand Open abgelaufen ist
         if(this.CircuitBreakerState == "OPEN") {
 
+            console.log("Circuit Breaker ist aktuell OPEN");
+
             if(timeDiff >= this.timeoutOpenState) {
                 // Wenn timeout abgelaufen setze den Circuit Breaker wieder auf HALF
+                console.log("Wechsel Circuit Breaker Status von OPEN auf HALF");
                 this.CircuitBreakerState = "HALF";
 
             } else {
+                console.log("Circuit Breaker immernoch auf OPEN");
                 return {"result": "Circuit Breaker is Open", "success": false};
             }
 
@@ -95,43 +82,50 @@ class CircuitBreaker {
 
         // Schritt 4: Prüfe ob Circuit Breaker im Zustand HALF ist -> Wenn Ja dann prüfe ob das Limit an Requests erreicht ist
         if(this.CircuitBreakerState == "HALF" && this.requestCount > this.permittedRequestsInStateHalf) {
+            console.log("Circuit Breaker immernoch auf HALF aber der erlaube RequestCount ist erreicht")
             return {"result": "CircuitBreaker is on state HALF and permitted Requests are reached!", "success": false};
         }
 
         // Schritt 5: Prüfe ob wieder auf Closed gesetzt werden kann
         if(this.CircuitBreakerState == "HALF" && (this.successCount - this.failCount >= this.triggerClosedState)) {
             this.checkReset(timeDiff)
+            console.log("Wechsel Circuit Breaker Status von HALF auf CLOSED")
             this.CircuitBreakerState = "CLOSED";
         }
 
 
         try {
             // Schritt 6: Falls die Bedingungen von Schritt 1 - Schritt 4 nicht erfüllt sind -> führe den Request durch
+            console.log("Führe HTTP Request im Circuit Breaker durch");
             let result = await this.makePostRequest(hostname, port, path, bodyData);
             this.successCount++;
-            return {"result": result, "success": true};
-        } catch (e) {
+            return result;
+        } catch (err) {
             this.failCount++;
 
             // Schritt 7: Prüfe das Verhältnis zwischen successCount und failCount
             // Schritt 7a: Prüfe ob auf HALF gesetzt werden muss
             if(this.successCount - this.failCount < this.triggerHalfState) {
+                console.log("Wechsel Circuit Breaker Status von CLOSED auf HALF");
                 this.CircuitBreakerState = "HALF";
                 this.timestamp = new Date();
             }
 
             // Schritt 7b: Prüfe ob auf Open gesetzt werden muss
             if(this.successCount - this.failCount < this.triggerOpenState) {
+                console.log("Wechsel Circuit Breaker Status von HALF auf OPEN");
                 this.CircuitBreakerState = "OPEN";
                 this.timestamp = new Date();
             }
-
-            return {"result": e, "success": false};
+            console.log("Request ist fehlgeschlagen");
+            throw err;
         }
     }
 
 
     async makePostRequest(hostname, port, path, bodyData) {
+
+        // TODO: HIER NOCH EINEN TIMEOUT FÜR DEN REQUEST SETZEN
 
         // Wenn auf HALF gesetzt dann zähle die Anzahl der Requests mit
         // Deshalb so gelöst, da requestCount nur im Zustand HALF benötigt wird
@@ -162,12 +156,11 @@ class CircuitBreaker {
                 res.on('end', () => {
                     let resBody = Buffer.concat(chunks);
                     // TODO: DAS FUNKTIONIERT HIER NOCH NICHT
-                    // WARUM AUCH IMMER !
+                    console.log(res.headers);
                     switch(res.headers['content-type']) {
-                        case 'application/json':
+                        case 'application/json; charset=utf-8':
+                            console.log("Parse JSON");
                             resBody = JSON.parse(resBody);
-                            console.log("glkedrgjkjrde");
-                            console.log(resBody);
                             break;
                     }
                     console.log("Post Request war erfolgreich!");
@@ -183,3 +176,5 @@ class CircuitBreaker {
     }
 
 }
+
+module.exports = CircuitBreaker
