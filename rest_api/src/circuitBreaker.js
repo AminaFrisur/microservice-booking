@@ -58,15 +58,13 @@ class CircuitBreaker {
     async circuitBreakerPostRequest(hostname, port, path, bodyData) {
 
         // Schritt 1: Berechne Abstand zwischen gespeicherten timeStamp und aktuellen timeStamp in Sekunden
-         let timeDiff = (this.timestamp - new Date()) / 1000;
+         let timeDiff = ( new Date() - this.timestamp) / 1000;
 
          // Schritt 2: Wenn der Timestamp älter ist als 5 Minuten -> setze alles auf Anfang
          this.checkReset(timeDiff);
 
          //Schritt 3: Prüfe ob timeout für Zustand Open abgelaufen ist
         if(this.CircuitBreakerState == "OPEN") {
-
-            console.log("Circuit Breaker ist aktuell OPEN");
 
             if(timeDiff >= this.timeoutOpenState) {
                 // Wenn timeout abgelaufen setze den Circuit Breaker wieder auf HALF
@@ -75,6 +73,7 @@ class CircuitBreaker {
 
             } else {
                 console.log("Circuit Breaker: immer noch auf Zustand OPEN");
+                console.log("Circuit Breaker ist "+ (this.timeoutOpenState - timeDiff)  + " noch offen");
                 throw "Request fehlgeschlagen: Circuit Breaker ist im Zustand offen. Keine Requests zu Service Benutzerverwaltung erlaubt";
             }
 
@@ -87,7 +86,7 @@ class CircuitBreaker {
         }
 
         // Schritt 5: Prüfe ob wieder auf Closed gesetzt werden kann
-        if(this.CircuitBreakerState == "HALF" && (this.successCount - this.failCount >= this.triggerClosedState)) {
+        if(this.CircuitBreakerState == "HALF" && (this.successCount - this.failCount > this.triggerClosedState)) {
             this.checkReset(timeDiff)
             console.log("Circuit Breaker: Wechsel Circuit Breaker Status von HALF auf CLOSED")
             this.CircuitBreakerState = "CLOSED";
@@ -113,7 +112,7 @@ class CircuitBreaker {
             }
 
             // Schritt 7c: Prüfe ob auf Open gesetzt werden muss
-            if(this.successCount - this.failCount < this.triggerOpenState) {
+            if(this.CircuitBreakerState == "HALF" && (this.successCount - this.failCount < this.triggerOpenState)) {
                 console.log("Circuit Breaker: Wechsel Circuit Breaker Status von HALF auf OPEN");
                 this.CircuitBreakerState = "OPEN";
                 this.timestamp = new Date();
@@ -146,7 +145,7 @@ class CircuitBreaker {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                timeout: 2
+                timeout: 3000
             };
 
             const postData = JSON.stringify(bodyData);
