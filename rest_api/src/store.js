@@ -36,7 +36,7 @@ class UserCache {
 
     clearCache() {
         // Map speichert in Insertion Order
-        console.log("Cache: clear cache");
+        console.log("Cache: Prüfe ob Einträge aus dem Cache gelöscht werden können");
         if (this.cachedUser.size > this.maxSize) {
             // kompletter reset des caches
             // sollte aber eigentlich nicht passieren
@@ -54,9 +54,9 @@ class UserCache {
             if (tempIndex >= 1) {
 
                 // Array ist größer als 1 also mache teile und hersche
-                let user = this.cachedUser[tempIndex - 1];
-                let timeDiff = user.cachedUser - new Date();
-
+                console.log(this.cachedUser[tempIndex - 1]);
+                let timeDiff = new Date() - this.cachedUser[tempIndex - 1].cacheTimestamp;
+                console.log(timeDiff - this.cacheTime);
                 // Wenn für den Eintrag die Cache Time erreicht ist -> lösche die hälfte vom Part des Arrays was betrachtet wird
                 // Damit sind dann nicht alle alten Cache einträge gelöscht -> aber das clearen vom Cache sollte schnell gehen
                 if (timeDiff >= this.cacheTime) {
@@ -79,6 +79,8 @@ class UserCache {
 
 
         }
+
+        console.log(this.cachedUser);
     }
 
     getUserIndex(loginName) {
