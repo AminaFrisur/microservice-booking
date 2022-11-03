@@ -43,7 +43,9 @@ class CircuitBreaker {
 
 
     checkReset(timeDiff) {
-        console.log("Circuit Breaker: Prüfe ob Circuit Breaker Status resetet werden soll");
+        console.log(timeDiff);
+        console.log(timeDiff - this.timeoutReset);
+        console.log("Circuit Breaker: Prüfe ob Circuit Breaker Status zurückgesetzt werden soll");
         if(timeDiff > this.timeoutReset &&
             (this.CircuitBreakerState == "CLOSED" || this.CircuitBreakerState == "HALF")) {
             console.log("Circuit Breaker: Kompletter Status wird zurückgesetzt!");
@@ -58,7 +60,7 @@ class CircuitBreaker {
     async circuitBreakerPostRequest(hostname, port, path, bodyData) {
 
         // Schritt 1: Berechne Abstand zwischen gespeicherten timeStamp und aktuellen timeStamp in Sekunden
-         let timeDiff = ( new Date() - this.timestamp) / 1000;
+         let timeDiff = ( new Date() - this.timestamp ) / 1000;
 
          // Schritt 2: Wenn der Timestamp älter ist als 5 Minuten -> setze alles auf Anfang
          this.checkReset(timeDiff);
@@ -127,7 +129,7 @@ class CircuitBreaker {
     // oder schmeißt eine Exception, falls Timeout beispielsweise erreicht
     async makePostRequest(hostname, port, path, bodyData) {
 
-        // TODO: HIER NOCH EINEN TIMEOUT FÜR DEN REQUEST SETZEN
+        // TODO: TIMEOUT FUNKTIONIERT AUS IRGEND EINEM GRUND NICHT
 
         // Wenn auf HALF gesetzt dann zähle die Anzahl der Requests mit
         // Deshalb so gelöst, da requestCount nur im Zustand HALF benötigt wird
