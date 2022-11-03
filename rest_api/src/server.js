@@ -2,6 +2,8 @@
 // TODO: GENERELL -> Authentifizierung zwischen Microservices muss noch umgesetzt werden
 // TODO: Umgebungsvariablen beim Start des Containers mit einfügen -> Umgebungsvariable für Router MongoDB
 // TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
+// TODO: Erstelle einen Trigger für die Erstellung der Buchungsnummer in MongoDB
+// TODO: Was soll passieren wenn die Dauer der Buchung überzogen wurde ? -> hier bei endTrip eine neue Rechnung erstellen mit strafgebühr
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -13,8 +15,8 @@ const mongoose = require('mongoose');
 
 // Erstelle einen Cache um Token zwischenzuspeichern
 var UserCache = require('./store.js');
-var cache = new UserCache(300000, 10000);
-
+// var cache = new UserCache(300000, 10000);
+var cache = new UserCache(10000, 10000);
 
 let auth = require('./auth.js')();
 
@@ -123,11 +125,12 @@ app.get('/getAllBookings', [middlerwareWrapper(cache, true, httpClient)], async 
     }
 });
 
+// // TODO: Dieser Request soll ausschließlich nur durch den TRIP Service erlaubt sein , nicht dem User
 app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, httpClient)], async function (req, res) {
     try {
-        let params = checkParams(req, res,["buchungsNummer"]);
+        let params = checkParams(req, res,["buchungsNummer", "login_name"]);
         await mongoose.connect(dbconfig.url)
-        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer });
+        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": params.login_name });
         res.status(200).send(buchung);
     } catch(err){
         console.log(err);
@@ -136,7 +139,8 @@ app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, httpClie
 
 });
 
-app.get('/getBookingByUser/:loginName',[middlerwareWrapper(cache, false)], async function (req, res) {
+// Das darf außschließlich nur der Nutzer abfragen, dem der Eintrag auch gehört
+app.get('/getBookings',[middlerwareWrapper(cache, false)], async function (req, res) {
     try {
         let params = checkParams(req, res,["loginName"]);
         await mongoose.connect(dbconfig.url)
@@ -291,7 +295,8 @@ app.post('/cancelBooking', [middlerwareWrapper(cache, false, httpClient), jsonBo
     }
 });
 
-app.post('/startTrip/:buchungsNummer', [middlerwareWrapper(cache, false, httpClient)],  async function (req, res) {
+// TODO: Dieser Request soll ausschließlich nur durch den TRIP Service erlaubt sein , nicht dem User
+app.post('/startTrip/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -310,7 +315,8 @@ app.post('/startTrip/:buchungsNummer', [middlerwareWrapper(cache, false, httpCli
     }
 });
 
-app.post('/endTrip/:buchungsNummer', [middlerwareWrapper(cache, false, httpClient)],  async function (req, res) {
+// TODO: Dieser Request soll ausschließlich der Trip Komponente erlaubt sein , nicht dem User
+app.post('/endTrip/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);

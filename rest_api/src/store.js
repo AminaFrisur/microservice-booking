@@ -14,6 +14,7 @@ class UserCache {
     // TODO: Zwei Lösungsansätze:
     // TODO: Lösung 1: Erstelle einfach kein neues Token sondern sende solange das Alte mit bis timestamp abgelaufen ist -> Somit kein Problem bei neuen Token, da der Timestamp bei beiden überprüft wird
     // TODO: Lösung 2: Nutze eine Event Kommunikation, in der Berichtet wird, das ein User ein neues Token bekommen hat -> Beispiel mit Apache Kafka -> Weiß aber auch nicht ob das zuviel Kommunikation darstellt
+    // TODO: AUch später unbedingt erklären warum ich Array als Datenstruktur genommen habe und nicht beispielsweise linked list oder so
 
     // Cache Strategie:
     // wenn checkToken erfolgreich -> speichere Nutzer, Token, Token Timestamp in cachedUser
