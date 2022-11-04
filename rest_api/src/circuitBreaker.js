@@ -1,4 +1,4 @@
-const http = require("http");
+const httpClient = require("./httpClient.js")();
 
 class CircuitBreaker {
     // Open, Half, Closed
@@ -26,8 +26,13 @@ class CircuitBreaker {
     permittedRequestsInStateHalf;
     requestCount;
 
+    // Circuit Breaker wird für jeden Host einzeln erstellt
+    hostname;
+    port;
+
     constructor(timeoutReset, timeoutOpenState, triggerHalfState,
-                triggerOpenState, permittedRequestsInStateHalf, triggerClosedState) {
+                triggerOpenState, permittedRequestsInStateHalf,
+                triggerClosedState, hostname, port) {
         this.failCount = 0;
         this.successCount = 0;
         this.requestCount = 0;
@@ -39,6 +44,8 @@ class CircuitBreaker {
         this.permittedRequestsInStateHalf = permittedRequestsInStateHalf;
         this.CircuitBreakerState = "CLOSED";
         this.timestamp = new Date();
+        this.hostname = hostname;
+        this.port = port;
     }
 
 
@@ -57,15 +64,15 @@ class CircuitBreaker {
     }
 
     // hostname = Loadbalancer der an die entsprechenden Microservices innerhalb der Fachlichkeit weiterleiten
-    async circuitBreakerPostRequest(hostname, port, path, bodyData) {
+    async circuitBreakerPostRequest(path, bodyData, headerData) {
 
         // Schritt 1: Berechne Abstand zwischen gespeicherten timeStamp und aktuellen timeStamp in Sekunden
-         let timeDiff = ( new Date() - this.timestamp ) / 1000;
+        let timeDiff = ( new Date() - this.timestamp ) / 1000;
 
-         // Schritt 2: Wenn der Timestamp älter ist als 5 Minuten -> setze alles auf Anfang
-         this.checkReset(timeDiff);
+        // Schritt 2: Wenn der Timestamp älter ist als 5 Minuten -> setze alles auf Anfang
+        this.checkReset(timeDiff);
 
-         //Schritt 3: Prüfe ob timeout für Zustand Open abgelaufen ist
+        //Schritt 3: Prüfe ob timeout für Zustand Open abgelaufen ist
         if(this.CircuitBreakerState == "OPEN") {
 
             if(timeDiff >= this.timeoutOpenState) {
@@ -98,7 +105,12 @@ class CircuitBreaker {
         try {
             // Schritt 6: Falls die Bedingungen von Schritt 1 - Schritt 4 nicht erfüllt sind -> führe den Request durch
             console.log("Circuit Breaker: Führe HTTP Request im Circuit Breaker durch");
-            let result = await this.makePostRequest(hostname, port, path, bodyData);
+            // Wenn auf HALF gesetzt dann zähle die Anzahl der Requests mit
+            // Deshalb so gelöst, da requestCount nur im Zustand HALF benötigt wird
+            if(this.CircuitBreakerState == "HALF") {
+                this.requestCount++;
+            }
+            let result = await httpClient.makePostRequest(this.hostname, this.port, path, bodyData, headerData);
             this.successCount++;
             console.log("Circuit Breaker: Request war erfolgreich. Success Count ist jetzt bei " + this.successCount);
             return result;
@@ -122,67 +134,6 @@ class CircuitBreaker {
             console.log("Circuit Breaker: Request ist fehlgeschlagen. Fail Count ist jetzt bei " + this.failCount);
             throw err;
         }
-    }
-
-    // Gibt entweder ein richtiges Ergebnis zurück
-    // oder Boolean False falls http Code nicht 200
-    // oder schmeißt eine Exception, falls Timeout beispielsweise erreicht
-    async makePostRequest(hostname, port, path, bodyData) {
-
-        // TODO: TIMEOUT FUNKTIONIERT AUS IRGEND EINEM GRUND NICHT
-
-        // Wenn auf HALF gesetzt dann zähle die Anzahl der Requests mit
-        // Deshalb so gelöst, da requestCount nur im Zustand HALF benötigt wird
-        if(this.CircuitBreakerState == "HALF") {
-            this.requestCount++;
-        }
-
-        return new Promise((resolve,reject) => {
-
-            const options = {
-                hostname: hostname,
-                port: port,
-                path: path,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                timeout: 3000
-            };
-
-            const postData = JSON.stringify(bodyData);
-
-            const req = http.request({
-                ...options,
-            }, res => {
-                const chunks = [];
-                res.on('data', data => chunks.push(data))
-                res.on('end', () => {
-                    let resBody = Buffer.concat(chunks);
-
-                    if(res.statusCode != 200 ) {
-                        console.log("Circuit Breaker: HTTP Status Code ist " +  res.statusCode);
-                        resolve(false);
-                    }
-
-                    switch(res.headers['content-type']) {
-                        // TODO: Was tun wenn der reponse text ist ?
-                        case 'application/json; charset=utf-8':
-                            console.log("Circuit Breaker: Parse JSON Response");
-                            resBody = JSON.parse(resBody);
-                            break;
-                    }
-                    console.log("Circuit Breaker: Post Request war erfolgreich!");
-                    resolve(resBody);
-                })
-            })
-
-            req.on('error',reject);
-            if(postData) {
-                req.write(postData);
-            }
-            req.end();
-        })
     }
 
 }

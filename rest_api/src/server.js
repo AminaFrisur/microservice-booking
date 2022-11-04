@@ -21,11 +21,17 @@ var cache = new UserCache(10000, 10000);
 let auth = require('./auth.js')();
 
 var CircuitBreaker = require('./circuitBreaker.js');
-var httpClient = new CircuitBreaker(150, 30, 0, -3, 10, 3);
+var circuitBreakerBenutzerverwaltung = new CircuitBreaker(150, 30, 0,
+                                                        -3, 10, 3,
+                                                                "rest-api-benutzerverwaltung1", 8000);
 
-const middlerwareWrapper = (cache, isAdmin, httpClient) => {
+var circuitBreakerRechnungsverwaltung = new CircuitBreaker(150, 30, 0,
+                                                        -3, 10, 3,
+                                                                "rest-api-rechnungsverwaltung1", 8000);
+
+const middlerwareWrapper = (cache, isAdmin, circuitBreaker) => {
     return (req, res, next) => {
-        auth.checkAuth(req, res, isAdmin, cache, httpClient, next);
+        auth.checkAuth(req, res, isAdmin, cache, circuitBreaker, next);
     }
 }
 
@@ -99,8 +105,8 @@ function checkParams(req, res, requiredParams) {
 // App
 const app = express();
 
-// TODO: Nochmal schauen ob das so im Frontend später in Ordnung ist
-app.post('/getCurrentBookings', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
+// TODO: Nochmal schauen ob das so im Frontend später in Ordnung ist -> MUSS UNBEDINGT GEÄNDERT WERDEN -> NEUEN CALL ERSTELLEN BEIM ERSTELLEN DES FRONTENDS
+app.post('/getCurrentBookings', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung), jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
         await mongoose.connect(dbconfig.url);
@@ -114,7 +120,7 @@ app.post('/getCurrentBookings', [middlerwareWrapper(cache, false, httpClient), j
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getAllBookings', [middlerwareWrapper(cache, true, httpClient)], async function (req, res) {
+app.get('/getAllBookings', [middlerwareWrapper(cache, true, circuitBreakerBenutzerverwaltung)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
@@ -125,12 +131,11 @@ app.get('/getAllBookings', [middlerwareWrapper(cache, true, httpClient)], async 
     }
 });
 
-// // TODO: Dieser Request soll ausschließlich nur durch den TRIP Service erlaubt sein , nicht dem User
-app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, httpClient)], async function (req, res) {
+app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
     try {
-        let params = checkParams(req, res,["buchungsNummer", "login_name"]);
+        let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
-        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": params.login_name });
+        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
         res.status(200).send(buchung);
     } catch(err){
         console.log(err);
@@ -139,12 +144,10 @@ app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, httpClie
 
 });
 
-// Das darf außschließlich nur der Nutzer abfragen, dem der Eintrag auch gehört
-app.get('/getBookings',[middlerwareWrapper(cache, false)], async function (req, res) {
+app.get('/getBookings',[middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
     try {
-        let params = checkParams(req, res,["loginName"]);
         await mongoose.connect(dbconfig.url)
-        const buchung = await buchungenDB.find({"loginName": params.loginName});
+        const buchung = await buchungenDB.find({"loginName": req.headers.login_name});
         res.status(200).send(buchung);
     } catch(err){
         console.log(err);
@@ -153,10 +156,10 @@ app.get('/getBookings',[middlerwareWrapper(cache, false)], async function (req, 
 
 });
 
-app.post('/createBooking', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
+app.post('/createBooking', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung), jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
-        let params = checkParams(req, res,["buchungsDatum", "loginName", "fahrzeugId", "fahrzeugTyp",
+        let params = checkParams(req, res,["buchungsDatum", "fahrzeugId", "fahrzeugTyp",
                                                         "fahrzeugModel", "dauerDerBuchung",
                                                         "name", "vorname", "straße", "hausnummer", "plz"]);
 
@@ -177,7 +180,7 @@ app.post('/createBooking', [middlerwareWrapper(cache, false, httpClient), jsonBo
         await buchungenDB.create({
             buchungsDatum: new Date(params.buchungsDatum).toISOString(),
             buchungsNummer: aktuelleBuchungsNummer,
-            loginName: params.loginName,
+            loginName: req.headers.login_name,
             fahrzeugId: params.fahrzeugId,
             dauerDerBuchung: params.dauerDerBuchung,
             preisNetto: preisNetto,
@@ -192,31 +195,30 @@ app.post('/createBooking', [middlerwareWrapper(cache, false, httpClient), jsonBo
 
 });
 
-app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
+app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
     try {
-        let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
-                                           "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
-                                           "nachname", "vorname", "straße", "hausnummer", "plz"]);
-        let preisNetto = preisTabelle[params.fahrzeugTyp];                                  
+        let params = checkParams(req, res,["buchungsNummer"]);
 
-        let buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-        if(buchung && buchung[0] && buchung[0].status == "created") {
+        let buchungDbResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
+        if(buchungDbResult && buchungDbResult[0] && buchungDbResult[0].status == "created") {
             // Schritt 2: Erstelle Rechnung
-            let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
-                "nachname": params.nachname, "straße": params.straße,
-                "hausnummer": params.hausnummer, "plz": params.plz,
-                "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
-                "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
-                "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": false};
+            const buchung = buchungDbResult[0];
+            let preisNetto = preisTabelle[buchung.fahrzeugTyp];
+            let bodyData = {"loginName": buchung.login_name, "vorname": buchung.vorname,
+                "nachname": buchung.nachname, "straße": buchung.straße,
+                "hausnummer": buchung.hausnummer, "plz": buchung.plz,
+                "fahrzeugId": buchung.fahrzeugId, "fahrzeugTyp": buchung.fahrzeugTyp,
+                "fahrzeugModel": buchung.fahrzeugModel, "dauerDerBuchung": buchung.dauerDerBuchung,
+                "preisNetto": preisNetto, "buchungsNummer": buchung.buchungsNummer, "gutschrift": false};
 
-            // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-            let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+            let headerData = { 'Content-Type': 'application/json'};
+            let promise = circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/createInvoice", bodyData, headerData );
             await promise;
 
-            buchung[0].status = "open";
-            buchung[0].save();
+            buchung.status = "open";
+            buchung.save();
 
-            res.status(200).send(`Rechnung zur Buchung ${buchung[0].buchungsNummer} wurde erfolgreich erstellt.`);
+            res.status(200).send(`Rechnung zur Buchung ${buchung.buchungsNummer} wurde erfolgreich erstellt.`);
         } else  {
             res.status(401).send("Rechnung konnte nicht erstellt werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Created befindet");
         }
@@ -226,21 +228,22 @@ app.post('/createInvoiceForNewBooking', [middlerwareWrapper(cache, false, httpCl
     }
 });
 
-app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false, httpClient)],  async function (req, res) {
+app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
-        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-        if(buchung && buchung[0] && buchung[0].status == "open"){
+        const buchungDbResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
+        if(buchungDbResult && buchungDbResult[0] && buchungDbResult[0].status == "open"){
+            const buchung = buchungDbResult[0];
             // Schritt 3: Führe Bezahlung durch
             // TODO: Payment noch hier einfügen
-            buchung[0].status = "paid";
-            buchung[0].save();
+            buchung.status = "paid";
+            buchung.save();
+
             // Schritt 4: Rechnung auf Bezahlt markieren
-            // HIER DAS PROBLEM MIT VERTEILTEN TRANSAKTIONEN -> Loesung: einzelner Batch Job der schaut ob Buchungen und Rechnungen jeweils dann auf Paid sind oder nicht
-            // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
+            // TODO: HIER DAS PROBLEM MIT VERTEILTEN TRANSAKTIONEN -> Loesung: einzelner Batch Job der schaut ob Buchungen und Rechnungen jeweils dann auf Paid sind oder nicht
             let bodyData = {};
-            let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsPaid/" + buchung[0].buchungsNummer, bodyData );
+            let promise = circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/markInvoiceAsPaid/" + buchung.buchungsNummer, bodyData);
             await promise;
             res.status(200).send("Buchung wurde erfolgreich bezahlt");
         }
@@ -253,38 +256,37 @@ app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false, ht
     }
 });
 
-app.post('/cancelBooking', [middlerwareWrapper(cache, false, httpClient), jsonBodyParser], async function (req, res) {
+app.post('/cancelBooking/:buchungsNummer', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
-        let params = checkParams(req, res,["buchungsNummer", "buchungsDatum", "loginName", "fahrzeugId",
-                                                        "fahrzeugTyp", "fahrzeugModel", "dauerDerBuchung",
-                                                        "nachname", "vorname", "straße", "hausnummer", "plz"]);
+        let params = checkParams(req, res,["buchungsNummer"]);
 
-	    const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-	    if(buchung && buchung[0] && buchung[0].status != "started" && buchung[0].status != "finished"){
-
-            if(buchung[0].status == "paid") {
-                let preisNetto = preisTabelle[params.fahrzeugTyp];
-                let bodyData = {"loginName":params.loginName, "vorname": params.vorname,
-                    "nachname": params.nachname, "straße": params.straße,
-                    "hausnummer": params.hausnummer, "plz": params.plz,
-                    "fahrzeugId": params.fahrzeugId, "fahrzeugTyp": params.fahrzeugTyp,
-                    "fahrzeugModel": params.fahrzeugModel, "dauerDerBuchung": params.dauerDerBuchung,
+	    const buchungDBResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
+	    if(buchungDBResult && buchungDBResult[0] && buchungDBResult[0].status != "started" && buchungDBResult[0].status != "finished"){
+                const buchung = buchungDBResult[0];
+            if(buchung.status == "paid") {
+                let preisNetto = preisTabelle[buchung.fahrzeugTyp];
+                let bodyData = {"loginName": buchung.login_name, "vorname": buchung.vorname,
+                    "nachname": buchung.nachname, "straße": buchung.straße,
+                    "hausnummer": buchung.hausnummer, "plz": buchung.plz,
+                    "fahrzeugId": buchung.fahrzeugId, "fahrzeugTyp": buchung.fahrzeugTyp,
+                    "fahrzeugModel": buchung.fahrzeugModel, "dauerDerBuchung": buchung.dauerDerBuchung,
                     // TODO: Eventuell noch mahn gebühren hier einfügen -> Also für das Stornieren -> Zudem auch Zeitintervall prüfen -> Falls 1 Stunde vor Buchung -> kein Stornieren mehr möglich
-                    "preisNetto": preisNetto, "buchungsNummer": params.buchungsNummer, "gutschrift": true};
-                    // TODO: dynamsich an Loadbalancer sollte die Anfrage geleitet werden ! -> Dieser Loadbalancer nimmt die Anfrage an und weißt sie dynamsich an die jeweilige Geschäftslogik Instanz
-                    let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/createInvoice", bodyData );
+                    "preisNetto": preisNetto, "buchungsNummer": buchung.buchungsNummer, "gutschrift": true};
+
+                    let headerData = { 'Content-Type': 'application/json'};
+                    let promise = circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/createInvoice", bodyData, headerData );
                     await promise;
 
-            } else if (buchung[0].status == "open") {
+            } else if (buchung.status == "open") {
                 // Storniere die unbezahlte Rechnung
                 // /markInvoiceAsCancelled/:buchungsNummer
                 let bodyData = {};
-                let promise = httpClient.circuitBreakerPostRequest("rest-api-rechnungsverwaltung1", 8000, "/markInvoiceAsCancelled/" + params.buchungsNummer, bodyData );
+                let promise = circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest( "/markInvoiceAsCancelled/" + params.buchungsNummer, bodyData );
                 await promise;
             }
-            buchung[0].status = "cancelled";
-            buchung[0].save();
+            buchung.status = "cancelled";
+            buchung.save();
             res.status(200).send("Buchung wurde erfolgeich storniert");
         }  else  {
             res.status(401).send("Buchung konnte nicht storniert werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Paid befindet");
@@ -300,10 +302,11 @@ app.post('/startTrip/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
-        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-        if(buchung && buchung[0] && buchung[0].status == "paid") {
-            buchung[0].status = "started";
-            buchung[0].save();
+        const buchungDBResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+        if(buchungDBResult && buchungDBResult[0] && buchungDBResult[0].status == "paid") {
+            const buchung = buchungDBResult[0];
+            buchung.status = "started";
+            buchung.save();
             res.status(200).send( "Trip wurde gestartet");
         }
         else {
@@ -320,10 +323,11 @@ app.post('/endTrip/:buchungsNummer',  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
-        const buchung = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
-        if(buchung && buchung[0] && buchung[0].status == "started") {
-            buchung[0].status = "finished";
-            buchung[0].save();
+        const buchungDBResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer});
+        if(buchungDBResult && buchungDBResult[0] && buchungDBResult[0].status == "started") {
+            const buchung = buchungDBResult[0];
+            buchung.status = "finished";
+            buchung.save();
             res.status(200).send("Trip wurde beendet");
         } else {
             res.status(401).send("Trip konnte nicht beendet werden, da keine Buchung vorhanden ist oder Buchung sich nicht im Status Started befindet");

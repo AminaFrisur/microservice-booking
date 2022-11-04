@@ -6,7 +6,7 @@ module.exports = function() {
     // Anschließend erfolgt eine Abfrage an MS Benutzerverwaltung
     // Booking MS speichert bei erfolg diesen zwischen (Key Value Store) mit den Parametern auth Token, Datum, Login Name
 
-     module.checkAuth = async function(req, res, isAdmin, cache, httpClient, next) {
+     module.checkAuth = async function(req, res, isAdmin, cache, circuitBreaker, next) {
         let authToken = req.headers.auth_token;
         let loginName = req.headers.login_name;
 
@@ -19,8 +19,10 @@ module.exports = function() {
         if(check == false) {
             // Schritt 2: Token ist nicht valide, Timestamp zu alt oder Auth Daten sind nicht im cache
             let bodyData = {"login_name":loginName, "auth_token": authToken, "isAdmin": isAdmin};
+            let headerData = { 'Content-Type': 'application/json'};
+            console.log(bodyData);
             try {
-                let loginData = await httpClient.circuitBreakerPostRequest("rest-api-benutzerverwaltung1", "8000", "/checkAuthUser", bodyData);
+                let loginData = await circuitBreaker.circuitBreakerPostRequest( "/checkAuthUser", bodyData, headerData);
                 console.log("Authentification: Request checkAuthUser ergab folgendes Ergebnis: " + loginData);
                 // TODO: Mal überlegen ob das wirklich so RAW von der Benutzerverwaltung übergeben werden soll
                 if(loginData) {
