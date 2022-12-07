@@ -118,12 +118,61 @@ services:
     ports:
       - 27138:27017
 
-  ## Rest API
   rest-api-buchungsverwaltung1:
     networks:
       - service
       - architecture
     build: ./rest_api
     container_name: rest-api-buchungsverwaltung1
+    environment:
+      - DBUSER=admin
+      - DBPWD=test1234
+      - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
+      - ROOTPW=test
+      - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
     ports:
-      - 8002:8000
+      - 8010:8000
+
+  rest-api-buchungsverwaltung2:
+    networks:
+      - service
+      - architecture
+    build: ./rest_api
+    container_name: rest-api-buchungsverwaltung2
+    environment:
+      - DBUSER=admin
+      - DBPWD=test1234
+      - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
+      - ROOTPW=test
+      - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+    ports:
+      - 8011:8000
+
+  rest-api-buchungsverwaltung3:
+    networks:
+      - service
+      - architecture
+    build: ./rest_api
+    container_name: rest-api-buchungsverwaltung3
+    environment:
+      - DBUSER=admin
+      - DBPWD=test1234
+      - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
+      - ROOTPW=test
+      - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+    ports:
+      - 8012:8000
+
+  api-gateway-buchungsverwaltung:
+    container_name: api-gateway-buchungsverwaltung
+    build: ./api_gateway
+    networks:
+      - service
+      - architecture
+    ports:
+      - 8083:80
+    depends_on:
+      - rest-api-buchungsverwaltung1
+      - rest-api-buchungsverwaltung2
+      - rest-api-buchungsverwaltung3
+

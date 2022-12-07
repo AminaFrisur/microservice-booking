@@ -2,12 +2,7 @@ const http = require("http");
 module.exports = function() {
     var module = {};
 
-    // Gibt entweder ein richtiges Ergebnis zurück
-    // oder Boolean False falls http Code nicht 200
-    // oder schmeißt eine Exception, falls Timeout beispielsweise erreicht
     module.makePostRequest = async function(hostname, port, path, bodyData, headerData) {
-
-        // TODO: TIMEOUT FUNKTIONIERT AUS IRGEND EINEM GRUND NICHT
         return new Promise((resolve,reject) => {
 
             const options = {

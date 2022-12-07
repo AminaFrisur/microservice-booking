@@ -1,48 +1,41 @@
 'use strict';
-// TODO: GENERELL -> Authentifizierung zwischen Microservices muss noch umgesetzt werden
-// TODO: Umgebungsvariablen beim Start des Containers mit einfügen -> Umgebungsvariable für Router MongoDB
-// TODO: Für die Fahrzeugverwaltung fehlt noch die Standort Lokalisierung -> muss gemacht werden, weil es ja sein kann das eine solche Trip komponente abstürzt
-// TODO: Erstelle einen Trigger für die Erstellung der Buchungsnummer in MongoDB
-// TODO: Was soll passieren wenn die Dauer der Buchung überzogen wurde ? -> hier bei endTrip eine neue Rechnung erstellen mit strafgebühr
-
 const express = require('express');
 const bodyParser = require('body-parser');
 var jsonBodyParser = bodyParser.json({ type: 'application/json' });
+const JWT_SECRET = "goK!pusp6ThEdURUtRenOwUhAsWUCLheasfr43qrf43rttq3";
+
 // Constants
 const PORT = 8000;
 const HOST = '0.0.0.0';
 const mongoose = require('mongoose');
 
-// Erstelle einen Cache um Token zwischenzuspeichern
-var UserCache = require('./store.js');
-// var cache = new UserCache(300000, 10000);
-var cache = new UserCache(10000, 10000);
+// Microservice Credentials:
+var root = "root";
+var password = process.env.ROOTPW;
 
-let auth = require('./auth.js')();
-
-var CircuitBreaker = require('./circuitBreaker.js');
-var circuitBreakerBenutzerverwaltung = new CircuitBreaker(150, 30, 0,
-                                                        -3, 10, 3,
-                                                                "rest-api-benutzerverwaltung1", 8000);
-
-var circuitBreakerRechnungsverwaltung = new CircuitBreaker(150, 30, 0,
-                                                        -3, 10, 3,
-                                                                "rest-api-rechnungsverwaltung1", 8000);
-
-const middlerwareWrapper = (cache, isAdmin, circuitBreaker) => {
+const middlerwareCheckAuthMicroservice = () => {
     return (req, res, next) => {
-        auth.checkAuth(req, res, isAdmin, cache, circuitBreaker, next);
+        Auth.checkAuthMicroservice(req, res, root, password,  next);
     }
 }
 
-// Key Value Store:
-// Hier werden Auth Token zwischengespeichert
-// Werden also somit nur gecached
-// Könnte man theoretisch auch für die Bentzerverwaltung überlegen
+const middlerwareCheckAuth = (isAdmin) => {
+    return (req, res, next) => {
+        Auth.checkAuth(req, res, isAdmin, JWT_SECRET,  next);
+    }
+}
 
+
+
+var Auth = require('./auth.js')();
+var CircuitBreaker = require('./circuitBreaker.js');
+var circuitBreakerRechnungsverwaltung = new CircuitBreaker(150, 30, 0, -3, 10, 3,
+                                        process.env.RECHNUNGSVERWALTUNG, 8000);
 mongoose.Promise = global.Promise;
 const dbconfig = {
-    url: 'mongodb://router-01-buchungsverwaltung/backend',
+    url: process.env.MONGODBROUTER,
+    user: process.env.DBUSER,
+    pwd: process.env.DBPWD
 }
 
 const preisTabelle = {
@@ -105,8 +98,7 @@ function checkParams(req, res, requiredParams) {
 // App
 const app = express();
 
-// TODO: Nochmal schauen ob das so im Frontend später in Ordnung ist -> MUSS UNBEDINGT GEÄNDERT WERDEN -> NEUEN CALL ERSTELLEN BEIM ERSTELLEN DES FRONTENDS
-app.post('/getCurrentBookings', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung), jsonBodyParser], async function (req, res) {
+app.post('/getCurrentBookings', [middlerwareCheckAuth(true), jsonBodyParser], async function (req, res) {
     try {
         let params = checkParams(req, res,["von", "bis"]);
         await mongoose.connect(dbconfig.url);
@@ -120,7 +112,7 @@ app.post('/getCurrentBookings', [middlerwareWrapper(cache, false, circuitBreaker
 
 // api call für eventuelle Statistiken
 // nur für Admin
-app.get('/getAllBookings', [middlerwareWrapper(cache, true, circuitBreakerBenutzerverwaltung)], async function (req, res) {
+app.get('/getAllBookings', [middlerwareCheckAuth(true)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         const buchungen = await buchungenDB.find({});
@@ -131,7 +123,7 @@ app.get('/getAllBookings', [middlerwareWrapper(cache, true, circuitBreakerBenutz
     }
 });
 
-app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
+app.get('/getBooking/:buchungsNummer',[middlerwareCheckAuth(false)], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
@@ -144,7 +136,7 @@ app.get('/getBooking/:buchungsNummer',[middlerwareWrapper(cache, false, circuitB
 
 });
 
-app.get('/getBookings',[middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
+app.get('/getBookings',[middlerwareCheckAuth(false)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url)
         const buchung = await buchungenDB.find({"loginName": req.headers.login_name});
@@ -156,7 +148,7 @@ app.get('/getBookings',[middlerwareWrapper(cache, false, circuitBreakerBenutzerv
 
 });
 
-app.post('/createBooking', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung), jsonBodyParser], async function (req, res) {
+app.post('/createBooking', [middlerwareCheckAuth(false), jsonBodyParser], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsDatum", "fahrzeugId", "fahrzeugTyp",
@@ -195,11 +187,12 @@ app.post('/createBooking', [middlerwareWrapper(cache, false, circuitBreakerBenut
 
 });
 
-app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
+app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareCheckAuth(false)], async function (req, res) {
     try {
         let params = checkParams(req, res,["buchungsNummer"]);
-
-        let buchungDbResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
+        await mongoose.connect(dbconfig.url)
+        const buchungDbResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
+        console.log("begfwgssgesgsdds!!!")
         if(buchungDbResult && buchungDbResult[0] && buchungDbResult[0].status == "created") {
             // Schritt 2: Erstelle Rechnung
             const buchung = buchungDbResult[0];
@@ -212,8 +205,7 @@ app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareWrapper(cach
                 "preisNetto": preisNetto, "buchungsNummer": buchung.buchungsNummer, "gutschrift": false};
 
             let headerData = { 'Content-Type': 'application/json'};
-            let promise = circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/createInvoice", bodyData, headerData );
-            await promise;
+            await circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/createInvoice", bodyData, headerData );
 
             buchung.status = "open";
             buchung.save();
@@ -228,7 +220,7 @@ app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareWrapper(cach
     }
 });
 
-app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)],  async function (req, res) {
+app.post('/payOpenBooking/:buchungsNummer', [middlerwareCheckAuth(false)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -256,7 +248,7 @@ app.post('/payOpenBooking/:buchungsNummer', [middlerwareWrapper(cache, false, ci
     }
 });
 
-app.post('/cancelBooking/:buchungsNummer', [middlerwareWrapper(cache, false, circuitBreakerBenutzerverwaltung)], async function (req, res) {
+app.post('/cancelBooking/:buchungsNummer', [middlerwareCheckAuth(false)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -297,8 +289,8 @@ app.post('/cancelBooking/:buchungsNummer', [middlerwareWrapper(cache, false, cir
     }
 });
 
-// TODO: Dieser Request soll ausschließlich nur durch den TRIP Service erlaubt sein , nicht dem User
-app.post('/startTrip/:buchungsNummer',  async function (req, res) {
+
+app.post('/startTrip/:buchungsNummer',[middlerwareCheckAuthMicroservice()], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -318,8 +310,7 @@ app.post('/startTrip/:buchungsNummer',  async function (req, res) {
     }
 });
 
-// TODO: Dieser Request soll ausschließlich der Trip Komponente erlaubt sein , nicht dem User
-app.post('/endTrip/:buchungsNummer',  async function (req, res) {
+app.post('/endTrip/:buchungsNummer',[middlerwareCheckAuthMicroservice()],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
