@@ -130,6 +130,7 @@ services:
       - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
       - ROOTPW=test
       - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+      - PWRECHNUNGSVERWALTUNG=test
     ports:
       - 8010:8000
 
@@ -145,6 +146,7 @@ services:
       - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
       - ROOTPW=test
       - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+      - PWRECHNUNGSVERWALTUNG=test
     ports:
       - 8011:8000
 
@@ -160,6 +162,7 @@ services:
       - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
       - ROOTPW=test
       - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+      - PWRECHNUNGSVERWALTUNG=test
     ports:
       - 8012:8000
 

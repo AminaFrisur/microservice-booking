@@ -13,6 +13,10 @@ const mongoose = require('mongoose');
 var root = "root";
 var password = process.env.ROOTPW;
 
+var rootRechnungsverwaltung = "root";
+var passwordRechnungsverwaltung = process.env.PWRECHNUNGSVERWALTUNG;
+
+
 const middlerwareCheckAuthMicroservice = () => {
     return (req, res, next) => {
         Auth.checkAuthMicroservice(req, res, root, password,  next);
@@ -192,7 +196,6 @@ app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareCheckAuth(fa
         let params = checkParams(req, res,["buchungsNummer"]);
         await mongoose.connect(dbconfig.url)
         const buchungDbResult = await buchungenDB.find({"buchungsNummer": params.buchungsNummer, "loginName": req.headers.login_name});
-        console.log("begfwgssgesgsdds!!!")
         if(buchungDbResult && buchungDbResult[0] && buchungDbResult[0].status == "created") {
             // Schritt 2: Erstelle Rechnung
             const buchung = buchungDbResult[0];
@@ -204,11 +207,11 @@ app.post('/createInvoiceForNewBooking/:buchungsNummer', [middlerwareCheckAuth(fa
                 "fahrzeugModel": buchung.fahrzeugModel, "dauerDerBuchung": buchung.dauerDerBuchung,
                 "preisNetto": preisNetto, "buchungsNummer": buchung.buchungsNummer, "gutschrift": false};
 
-            let headerData = { 'Content-Type': 'application/json'};
-            await circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/createInvoice", bodyData, headerData );
-
             buchung.status = "open";
             buchung.save();
+
+            let headerData = { 'Content-Type': 'application/json', "login_name": rootRechnungsverwaltung, "password": passwordRechnungsverwaltung };
+            await circuitBreakerRechnungsverwaltung.circuitBreakerPostRequest("/createInvoice", bodyData, headerData );
 
             res.status(200).send(`Rechnung zur Buchung ${buchung.buchungsNummer} wurde erfolgreich erstellt.`);
         } else  {

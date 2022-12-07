@@ -42,7 +42,7 @@ module.exports = function() {
             next();
         } else {
             console.log("AUTH: Authentifizierung des Microservices ist fehlgeschlagen!");
-            res.status(401).send("token is to old. Please get a new one.");
+            res.status(401).send("Authentifizierung fehlgeschlagen");
         }
 
     }
