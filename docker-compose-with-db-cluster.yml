@@ -1,0 +1,181 @@
+
+networks:
+  service:
+    name: buchungsverwaltung-service-main
+  architecture:
+    name: main
+
+services:
+  ## Router
+  router-01-buchungsverwaltung:
+    networks:
+      - service
+    build: ./db_config_router
+    container_name: router-01-buchungsverwaltung
+    command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/db-buchung-config1:27017,db-buchung-config2:27017,db-buchung-config3:27017 --bind_ip_all
+    ports:
+      - 27128:27017
+
+  router-02-buchungsverwaltung:
+    networks:
+      - service
+    build: ./db_config_router
+    container_name: router-02-buchungsverwaltung
+    command: mongos --port 27017 --configdb buchungsverwaltung-mongodb-config-server/db-buchung-config1:27017,db-buchung-config2:27017,db-buchung-config3:27017 --bind_ip_all
+    ports:
+      - 27129:27017
+    links:
+      - router01buchungsverwaltung
+
+  ## Config Servers
+  db-buchung-config1:
+    networks:
+      - service  
+    build: ./db_config_router
+    ports:
+      - 27130:27017
+    container_name: db-buchung-config1
+    command: mongod --port 27017 --configsvr --replSet buchungsverwaltung-mongodb-config-server
+
+  db-buchung-config2:
+    networks:
+      - service
+    build: ./db_config_router
+    ports:
+      - 27131:27017
+    container_name: db-buchung-config2
+    command: mongod --port 27017 --configsvr --replSet buchungsverwaltung-mongodb-config-server
+
+  db-buchung-config3:
+    networks:
+      - service
+    build: ./db_config_router
+    ports:
+      - 27132:27017
+    container_name: db-buchung-config3
+    command: mongod --port 27017 --configsvr --replSet buchungsverwaltung-mongodb-config-server
+
+  ## Shards 1
+  shard-01-buchungsverwaltung1:
+    networks:
+      - service
+    build: ./db_shard
+    container_name: shard-01-buchungsverwaltung1
+    command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
+    ports:
+      - 27133:27017
+    links:
+      - shard01buchungsverwaltung2
+      - shard01buchungsverwaltung3
+
+  shard-01-buchungsverwaltung2:
+    networks:
+      - service
+    build: ./db_shard
+    container_name: shard-01-buchungsverwaltung2
+    command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
+    ports:
+      - 27134:27017
+
+  shard-01-buchungsverwaltung3:
+    networks:
+      - service
+    build: ./db_shard
+    container_name: shard-01-buchungsverwaltung3
+    command: mongod --port 27017 --shardsvr --replSet shard-01-db-buchungsverwaltung
+    ports:
+      - 27135:27017
+
+
+  ## Shards 2
+  shard-02-buchungsverwaltung1:
+    networks:
+      - service
+    build: ./db_shard
+    container_name: shard-02-buchungsverwaltung1
+    command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
+    ports:
+      - 27136:27017
+    links:
+      - shard02buchungsverwaltung2
+      - shard02buchungsverwaltung3
+
+  shard-02-buchungsverwaltung2:
+    networks:
+      - service
+    build: ./db_shard
+    container_name: shard-02-buchungsverwaltung2
+    command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
+    ports:
+      - 27137:27017
+
+  shard-02-buchungsverwaltung3:
+    networks:
+      - service
+    build: ./db_shard
+    container_name: shard-02-buchungsverwaltung3
+    command: mongod --port 27017 --shardsvr --replSet shard-02-db-buchungsverwaltung
+    ports:
+      - 27138:27017
+
+  rest-api-buchungsverwaltung1:
+    networks:
+      - service
+      - architecture
+    build: ./rest_api
+    container_name: rest-api-buchungsverwaltung1
+    environment:
+      - DBUSER=admin
+      - DBPWD=test1234
+      - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
+      - ROOTPW=test
+      - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+      - PWRECHNUNGSVERWALTUNG=test
+    ports:
+      - 8010:8000
+
+  rest-api-buchungsverwaltung2:
+    networks:
+      - service
+      - architecture
+    build: ./rest_api
+    container_name: rest-api-buchungsverwaltung2
+    environment:
+      - DBUSER=admin
+      - DBPWD=test1234
+      - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
+      - ROOTPW=test
+      - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+      - PWRECHNUNGSVERWALTUNG=test
+    ports:
+      - 8011:8000
+
+  rest-api-buchungsverwaltung3:
+    networks:
+      - service
+      - architecture
+    build: ./rest_api
+    container_name: rest-api-buchungsverwaltung3
+    environment:
+      - DBUSER=admin
+      - DBPWD=test1234
+      - MONGODBROUTER=mongodb://router-01-buchungsverwaltung/backend
+      - ROOTPW=test
+      - RECHNUNGSVERWALTUNG=api-gateway-rechnungsverwaltung
+      - PWRECHNUNGSVERWALTUNG=test
+    ports:
+      - 8012:8000
+
+  api-gateway-buchungsverwaltung:
+    container_name: api-gateway-buchungsverwaltung
+    build: ./api_gateway
+    networks:
+      - service
+      - architecture
+    ports:
+      - 8083:80
+    depends_on:
+      - rest-api-buchungsverwaltung1
+      - rest-api-buchungsverwaltung2
+      - rest-api-buchungsverwaltung3
+

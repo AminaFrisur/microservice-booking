@@ -293,7 +293,7 @@ app.post('/cancelBooking/:buchungsNummer', [middlerwareCheckAuth(false)], async 
 });
 
 
-app.post('/startTrip/:buchungsNummer',[middlerwareCheckAuthMicroservice()], async function (req, res) {
+app.post('/startTrip/:buchungsNummer',[middlerwareCheckAuth(false)], async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
@@ -313,7 +313,7 @@ app.post('/startTrip/:buchungsNummer',[middlerwareCheckAuthMicroservice()], asyn
     }
 });
 
-app.post('/endTrip/:buchungsNummer',[middlerwareCheckAuthMicroservice()],  async function (req, res) {
+app.post('/endTrip/:buchungsNummer',[middlerwareCheckAuth(false)],  async function (req, res) {
     try {
         await mongoose.connect(dbconfig.url);
         let params = checkParams(req, res,["buchungsNummer"]);
